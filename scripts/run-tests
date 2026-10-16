@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -e
+
+COMPILER=${CXX:-"g++-16"}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+TESTS_DIR="$ROOT_DIR/examples"
+
+BUILD_DIR=$(mktemp -d -t proxy-examples-XXXXXX)
+OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
+
+INCLUDE_ARGS=(
+    "-std=c++26"
+    "-freflection"
+    "-I" "$ROOT_DIR/include"
+)
+
+cleanup() {
+    export LD_LIBRARY_PATH=$OLD_LD_LIBRARY_PATH
+    if [ -d "$BUILD_DIR" ]; then
+        rm -rf "$BUILD_DIR"
+    fi
+}
+trap cleanup EXIT
+
+build_and_run_project() {
+    local project="$1"
+    local project_path="$TESTS_DIR/$project"
+    local program="$BUILD_DIR/$project"
+
+    echo "[build-program] ${project}"
+    $COMPILER "${INCLUDE_ARGS[@]}" "$project_path/main.cpp" -o "$program"
+    echo "[run-program]   ${project}"
+    "$program"
+}
+
+build_and_run_shared_project() {
+    local project="$1"
+    local project_path="$TESTS_DIR/$project"
+    local plugin="$BUILD_DIR/lib${project}-plugin.so"
+    local program="$BUILD_DIR/$project"
+
+    echo "[build-plugin]  ${project}"
+    $COMPILER "${INCLUDE_ARGS[@]}" -shared -fPIC "$project_path/plugin.cpp" -o "$plugin"
+    echo "[build-program] ${project}"
+    $COMPILER "${INCLUDE_ARGS[@]}" "$project_path/main.cpp" -L"$BUILD_DIR" -l"${project}-plugin" -Wl,-rpath,"$BUILD_DIR" -o "$program"
+    echo "[run-program]   ${project}"
+    "$program"
+}
+
+for project in basic dynamic_cast dispatch manual memory; do
+    build_and_run_project "$project"
+done
+
+for project in abi evolution; do
+    build_and_run_shared_project "$project"
+done
+
+echo "All tests passed."
