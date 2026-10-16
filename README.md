@@ -336,7 +336,7 @@ struct ISelf {
 
 struct SharedObject : proxy::enable_shared_from_this<SharedObject> {
     static proxy::interface_holder<ISelf> self(proxy::object_handle<SharedObject, ISelf> self) {
-        return proxy::interface_holder<ISelf>{proxy::recover_shared(self)};
+        return proxy::recover_shared(self);
     }
 };
 

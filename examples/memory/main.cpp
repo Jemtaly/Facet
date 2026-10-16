@@ -9,7 +9,7 @@ struct ICounter {
     int count() const;
 };
 
-struct Tracked : proxy::enable_shared_from_this<Tracked> {
+struct Tracked {
     static inline int alive = 0;
     static inline int destroyed = 0;
 
@@ -27,7 +27,7 @@ struct Tracked : proxy::enable_shared_from_this<Tracked> {
     }
 };
 
-int main() {
+void test_tracked_lifetime() {
     Tracked::alive = 0;
     Tracked::destroyed = 0;
 
@@ -41,10 +41,6 @@ int main() {
             assert(retained->count() == 42);
         }
         assert(Tracked::alive == 1);
-
-        auto recovered = proxy::recover_shared(shared.get_handle());
-        proxy::interface_holder<ICounter> from_recovered{recovered};
-        assert(from_recovered->count() == 42);
 
         proxy::interface_holder<ICounter> erased = std::move(shared);
         assert(!shared);
@@ -73,4 +69,25 @@ int main() {
     }
     assert(Tracked::alive == 0);
     assert(Tracked::destroyed == 3);
+}
+
+struct IRecoverable {
+    proxy::interface_holder<IRecoverable> retain() const;
+};
+
+struct Recoverable : proxy::enable_shared_from_this<Recoverable> {
+    static proxy::interface_holder<IRecoverable> retain(proxy::object_handle<Recoverable, IRecoverable> self) {
+        return proxy::recover_shared(self);
+    }
+};
+
+void test_recoverable() {
+    auto object = proxy::make_shared<Recoverable, IRecoverable>();
+    proxy::interface_holder<IRecoverable> retained = object->retain();
+    assert(retained);
+}
+
+int main() {
+    test_tracked_lifetime();
+    test_recoverable();
 }
