@@ -93,11 +93,34 @@ template<class I>
 struct default_def {
     using interface_handle_type = interface_handle<I>;
 
-    static consteval std::vector<meta::info> collect_spec_methods() {
+    struct vtable_type;
+
+    struct abi_type {
+        void *data;
+        type_info const *rtti;
+        vtable_type const *vt;
+    };
+
+    static constexpr interface_version_t interface_version = get_interface_version(^^I);
+
+    enum class field_kind {
+        base,
+        method,
+    };
+
+    struct field_descriptor {
+        field_kind kind;
+        meta::info spec;
+    };
+
+    static constexpr std::span<field_descriptor const> field_descriptors = [] {
         if (!meta::is_class_type(^^I)) {
             compile_time_error("proxy: interface spec must be a class type");
         }
-        std::vector<meta::info> result;
+        std::vector<field_descriptor> result;
+        for (meta::info base : meta::bases_of(^^I, all_ctx())) {
+            result.emplace_back(field_kind::base, base);
+        }
         for (meta::info member : meta::members_of(^^I, all_ctx())) {
             if (meta::is_special_member_function(member)) {
                 continue;
@@ -111,61 +134,10 @@ struct default_def {
                 meta::is_function_template(member)) {
                 compile_time_error("proxy: interface spec contains invalid member function");
             }
-            result.push_back(member);
+            result.emplace_back(field_kind::method, member);
         }
-        return result;
-    }
-
-    static consteval std::vector<meta::info> collect_spec_bases() {
-        std::vector<meta::info> result;
-        for (meta::info base : meta::bases_of(^^I, all_ctx())) {
-            result.push_back(base);
-        }
-        return result;
-    }
-
-    static constexpr std::span<meta::info const> spec_methods =
-        std::define_static_array(collect_spec_methods());
-
-    static constexpr std::span<meta::info const> spec_bases =
-        std::define_static_array(collect_spec_bases());
-
-    static constexpr interface_version_t interface_version = get_interface_version(^^I);
-
-    struct ftable_type;
-
-    struct vtable_type;
-
-    struct abi_type {
-        void *data;
-        type_info const *rtti;
-        vtable_type const *vt;
-    };
-
-    template<meta::info Method,
-             class Sig = typename[:method_signature(Method):]>
-    struct thunk_pointer;
-
-    template<meta::info Method, class R, class... A>
-    struct thunk_pointer<Method, R(A...)> {
-        using type = R (*)(abi_type, A...);
-    };
-
-    template<meta::info Method>
-    using thunk_pointer_t = thunk_pointer<Method>::type;
-
-    consteval {
-        std::vector<meta::info> members = {
-            meta::data_member_spec(^^interface_version_t, {.name = "version"}),
-        };
-        std::size_t index = 0;
-        for (meta::info method : spec_methods) {
-            members.push_back(meta::data_member_spec(
-                meta::dealias(meta::substitute(^^thunk_pointer_t, {meta::reflect_constant(method)})),
-                {.name = "method_" + to_decimal_string(index++)}));
-        }
-        meta::define_aggregate(^^ftable_type, members);
-    }
+        return std::define_static_array(result);
+    }();
 
     template<meta::info Base,
              class Type = typename[:meta::type_of(Base):]>
@@ -176,26 +148,68 @@ struct default_def {
     template<meta::info Base>
     using base_pointer_t = typename base_pointer<Base>::type;
 
+    template<meta::info Method,
+             class Sig = typename[:method_signature(Method):]>
+    struct method_pointer;
+
+    template<meta::info Method, class R, class... A>
+    struct method_pointer<Method, R(A...)> {
+        using type = R (*)(abi_type, A...);
+    };
+
+    template<meta::info Method>
+    using method_pointer_t = method_pointer<Method>::type;
+
     consteval {
         std::vector<meta::info> members = {
-            meta::data_member_spec(^^ftable_type const *, {.name = "self"}),
+            meta::data_member_spec(^^interface_version_t, {.name = "version"}),
         };
-        std::size_t index = 0;
-        for (meta::info base : spec_bases) {
-            members.push_back(meta::data_member_spec(
-                meta::dealias(meta::substitute(^^base_pointer_t, {meta::reflect_constant(base)})),
-                {.name = "base_" + to_decimal_string(index++)}));
+        std::size_t method_index = 0;
+        std::size_t base_index = 0;
+        for (auto desc : field_descriptors) {
+            if (desc.kind == field_kind::base) {
+                members.push_back(meta::data_member_spec(
+                    meta::dealias(meta::substitute(
+                        ^^base_pointer_t,
+                        {
+                            meta::reflect_constant(desc.spec),
+                        })),
+                    {.name = "base_" + to_decimal_string(base_index++)}));
+            }
+            if (desc.kind == field_kind::method) {
+                members.push_back(meta::data_member_spec(
+                    meta::dealias(meta::substitute(
+                        ^^method_pointer_t,
+                        {
+                            meta::reflect_constant(desc.spec),
+                        })),
+                    {.name = "method_" + to_decimal_string(method_index++)}));
+            }
         }
         meta::define_aggregate(^^vtable_type, members);
     }
 
-    static consteval meta::info vtable_base_member(std::size_t index) {
-        return nth_data_member(^^vtable_type, index + 1);
-    }
+    static constexpr std::span<meta::info const> fields_in_vtable = all_data_members_v<vtable_type>.subspan(1);
 
-    static consteval meta::info ftable_method_member(std::size_t index) {
-        return nth_data_member(^^ftable_type, index + 1);
-    }
+    template<auto... Values>
+    static constexpr vtable_type value_with = {
+        interface_version,
+        Values...,
+    };
+
+    template<auto... Values>
+    static constexpr vtable_type const *pointer_with = &value_with<Values...>;
+
+    template<meta::info Base, meta::info Member,
+             class Type = typename[:meta::type_of(Base):]>
+    struct automatic_base_converter_t {
+        constexpr vtable_t<Type> const *operator()(vtable_type const *vt) const noexcept {
+            return vt->[:Member:];
+        }
+    };
+
+    template<meta::info Base, meta::info Member>
+    static constexpr automatic_base_converter_t<Base, Member> automatic_base_converter{};
 
     template<meta::info Method, meta::info Member,
              class Sig = typename[:method_signature(Method):]>
@@ -205,67 +219,55 @@ struct default_def {
     struct automatic_method_invoker_t<Method, Member, R(A...)> {
         R operator()(interface_handle_type handle, A... args) const {
             vtable_type const *vt = std::get<0>(handle.vtables);
-            ftable_type const *ft = vt->self;
             constexpr since_t since_info = get_method_since(Method);
             if constexpr (since_info.default_impl != meta::info{}) {
-                if (ft->version < since_info.version) {
+                if (vt->version < since_info.version) {
                     return [:since_info.default_impl:](handle, std::forward<A>(args)...);
                 }
             }
             abi_type abi{handle.data, handle.rtti, vt};
-            return ft->[:Member:](abi, std::forward<A>(args)...);
+            return vt->[:Member:](abi, std::forward<A>(args)...);
         }
     };
 
     template<meta::info Method, meta::info Member>
     static constexpr automatic_method_invoker_t<Method, Member> automatic_method_invoker{};
 
-    static consteval std::vector<direct_method_t> make_direct_methods() {
-        std::vector<direct_method_t> result;
-        template for (constexpr std::size_t index : std::views::iota(0uz, spec_methods.size())) {
-            constexpr meta::info method = spec_methods[index];
-            constexpr meta::info member = ftable_method_member(index);
-            result.push_back(direct_method_t{
-                make_fixed_string(meta::identifier_of(method)),
-                meta::reflect_constant(automatic_method_invoker<method, member>),
-            });
-        }
-        return result;
-    }
-
-    template<meta::info Base, meta::info Member,
-             class Type = typename[:meta::type_of(Base):]>
-    struct automatic_base_converter_t {
-        constexpr vtable_t<Type> const *operator()(vtable_type const *table) const noexcept {
-            return table->[:Member:];
-        }
+    struct direct_members_t {
+        std::span<direct_base_t const> bases;
+        std::span<direct_method_t const> methods;
     };
 
-    template<meta::info Base, meta::info Member>
-    static constexpr automatic_base_converter_t<Base, Member> automatic_base_converter{};
-
-    static consteval std::vector<direct_base_t> make_direct_bases() {
-        std::vector<direct_base_t> result;
-        template for (constexpr std::size_t index : std::views::iota(0uz, spec_bases.size())) {
-            constexpr meta::info base = spec_bases[index];
-            constexpr meta::info member = vtable_base_member(index);
-            result.push_back(direct_base_t{
-                meta::type_of(base),
-                meta::reflect_constant(automatic_base_converter<base, member>),
-            });
+    static constexpr direct_members_t direct_members = [] {
+        std::vector<direct_base_t> bases;
+        std::vector<direct_method_t> methods;
+        for (auto [desc, member] : std::views::zip(field_descriptors, fields_in_vtable)) {
+            if (desc.kind == field_kind::base) {
+                bases.emplace_back(
+                    meta::type_of(desc.spec),
+                    meta::substitute(
+                        ^^automatic_base_converter,
+                        {
+                            meta::reflect_constant(desc.spec),
+                            meta::reflect_constant(member),
+                        }));
+            }
+            if (desc.kind == field_kind::method) {
+                methods.emplace_back(
+                    make_fixed_string(meta::identifier_of(desc.spec)),
+                    meta::substitute(
+                        ^^automatic_method_invoker,
+                        {
+                            meta::reflect_constant(desc.spec),
+                            meta::reflect_constant(member),
+                        }));
+            }
         }
-        return result;
-    }
-
-    struct direct_methods {
-        static constexpr std::span<direct_method_t const> value =
-            std::define_static_array(make_direct_methods());
-    };
-
-    struct direct_bases {
-        static constexpr std::span<direct_base_t const> value =
-            std::define_static_array(make_direct_bases());
-    };
+        return direct_members_t{
+            std::define_static_array(bases),
+            std::define_static_array(methods),
+        };
+    }();
 
     template<class Data>
     struct vtable_implements {
@@ -438,12 +440,21 @@ struct default_def {
             return {};
         }
 
+        template<meta::info Base,
+                 class Type = typename[:meta::type_of(Base):]>
+        struct base_pointer {
+            static constexpr vtable_t<Type> const *value = vtable_implements_v<Data, Type>;
+        };
+
+        template<meta::info Base>
+        static constexpr auto base_pointer_v = base_pointer<Base>::value;
+
         template<meta::info Method,
                  class Sig = typename[:method_signature(Method):]>
-        struct thunk_pointer;
+        struct method_pointer;
 
         template<meta::info Method, class R, class... A>
-        struct thunk_pointer<Method, R(A...)> {
+        struct method_pointer<Method, R(A...)> {
             static R call(abi_type abi, A... args) {
                 constexpr meta::info adaptor = resolve_impl(Method);
                 if constexpr (adaptor == meta::info{}) {
@@ -456,32 +467,30 @@ struct default_def {
         };
 
         template<meta::info Method>
-        static constexpr auto thunk_pointer_v = &thunk_pointer<Method>::call;
+        static constexpr auto method_pointer_v = method_pointer<Method>::call;
 
-        static constexpr ftable_type ftable_value = []<std::size_t... K>(std::index_sequence<K...>) {
-            return ftable_type{
-                interface_version,
-                thunk_pointer_v<spec_methods[K]>...,
-            };
-        }(std::make_index_sequence<spec_methods.size()>{});
-
-        template<meta::info Base,
-                 class Type = typename[:meta::type_of(Base):]>
-        struct base_pointer {
-            static constexpr vtable_t<Type> const *value = vtable_implements_v<Data, Type>;
-        };
-
-        template<meta::info Base>
-        static constexpr auto base_pointer_v = base_pointer<Base>::value;
-
-        static constexpr vtable_type vtable_value = []<std::size_t... K>(std::index_sequence<K...>) {
-            return vtable_type{
-                &ftable_value,
-                base_pointer_v<spec_bases[K]>...,
-            };
-        }(std::make_index_sequence<spec_bases.size()>{});
-
-        static constexpr vtable_type const *value = &vtable_value;
+        static constexpr vtable_type const *pointer = [] {
+            std::vector<meta::info> members;
+            for (auto desc : field_descriptors) {
+                if (desc.kind == field_kind::base) {
+                    members.push_back(
+                        meta::dealias(meta::substitute(
+                            ^^base_pointer_v,
+                            {
+                                meta::reflect_constant(desc.spec),
+                            })));
+                }
+                if (desc.kind == field_kind::method) {
+                    members.push_back(
+                        meta::dealias(meta::substitute(
+                            ^^method_pointer_v,
+                            {
+                                meta::reflect_constant(desc.spec),
+                            })));
+                }
+            }
+            return meta::extract<vtable_type const *>(meta::substitute(^^pointer_with, members));
+        }();
     };
 };
 }
@@ -493,12 +502,12 @@ struct interface_id<I> {
 
 template<class I>
 struct direct_methods {
-    static constexpr auto const &value = detail::default_def<I>::direct_methods::value;
+    static constexpr auto const &value = detail::default_def<I>::direct_members.methods;
 };
 
 template<class I>
 struct direct_bases {
-    static constexpr auto const &value = detail::default_def<I>::direct_bases::value;
+    static constexpr auto const &value = detail::default_def<I>::direct_members.bases;
 };
 
 template<class I>
@@ -508,6 +517,6 @@ struct vtable {
 
 template<class Data, class I>
 struct vtable_implements {
-    static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::value;
+    static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::pointer;
 };
 }
