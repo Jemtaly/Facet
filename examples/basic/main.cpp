@@ -4,6 +4,36 @@
 #include <proxy.hpp>
 #include <proxy/reflection.hpp>
 
+struct IBase {
+    void base() const;
+};
+
+struct IDerived : IBase {
+    void derived() const;
+};
+
+struct GoodBaseModel {
+    void base() const {}
+};
+
+struct BadBaseModel {};
+
+struct GoodDerivedModel {
+    void base() const {}
+    void derived() const {}
+};
+
+struct BadDerivedModel {
+    void derived() const {}
+};
+
+void test_implementation() {
+    static_assert(proxy::implements<GoodBaseModel, IBase>);
+    static_assert(!proxy::implements<BadBaseModel, IBase>);
+    static_assert(proxy::implements<GoodDerivedModel, IDerived>);
+    static_assert(!proxy::implements<BadDerivedModel, IDerived>);
+}
+
 struct INamed {
     std::string name() const;
 };
@@ -114,6 +144,7 @@ void test_upcast() {
 }
 
 int main() {
+    test_implementation();
     test_named_interface();
     test_template_interface();
     test_upcast();
