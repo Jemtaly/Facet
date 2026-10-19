@@ -4,6 +4,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <meta>
 #include <ranges>
 #include <span>
@@ -385,6 +386,38 @@ struct combined_facade_def {
 }
 
 // ============================================================================
+// Tuple
+// ============================================================================
+
+namespace proxy {
+namespace detail {
+template<class... Ts>
+struct tuple_def {
+    struct type;
+
+    consteval {
+        meta::define_aggregate(^^type, {meta::data_member_spec(^^Ts, {.name = "_"})...});
+    }
+};
+}
+
+template<class... Ts>
+using tuple = typename detail::tuple_def<Ts...>::type;
+
+template<std::size_t I, class T>
+constexpr decltype(auto) get(T &&t) noexcept {
+    return (std::forward<T>(t).[:detail::all_data_members_v<std::remove_cvref_t<T>>[I]:]);
+}
+
+template<class F, class T>
+constexpr decltype(auto) apply(F &&f, T &&t) {
+    return [&]<std::size_t... Is>(std::index_sequence<Is...>) -> decltype(auto) {
+        return std::invoke(std::forward<F>(f), get<Is>(std::forward<T>(t))...);
+    }(std::make_index_sequence<detail::all_data_members_v<std::remove_cvref_t<T>>.size()>{});
+}
+}
+
+// ============================================================================
 // Bare handle
 // ============================================================================
 
@@ -392,7 +425,7 @@ namespace proxy {
 template<class Data, class... Is>
 struct object_handle {
     using data_type = Data;
-    using vtable_tuple = std::tuple<vtable_t<Is> const *...>;
+    using vtable_tuple = proxy::tuple<vtable_t<Is> const *...>;
 
     Data *data = nullptr;
     type_info const *rtti = nullptr;
@@ -431,7 +464,7 @@ struct object_handle {
         template for (constexpr std::size_t K : std::views::iota(0uz, sizeof...(Is))) {
             using I = Is...[K];
             if constexpr (upcastable_from<To, I>) {
-                return vtable_upcast<To, I>(std::get<K>(vtables));
+                return vtable_upcast<To, I>(proxy::get<K>(vtables));
             }
         }
     }
@@ -463,7 +496,7 @@ struct object_handle {
 
     explicit operator bool() const noexcept {
         return data != nullptr &&
-               std::apply(
+               proxy::apply(
                    [](vtable_t<Is> const *...vs) {
                        return ((vs != nullptr) && ...);
                    },

@@ -69,15 +69,6 @@ inline consteval since_t get_method_since(meta::info method) {
     return annotations.empty() ? since_t{} : meta::extract<since_t>(annotations[0]);
 }
 
-inline consteval std::string to_decimal_string(std::size_t n) {
-    std::string s;
-    do {
-        s.insert(s.begin(), static_cast<char>('0' + n % 10));
-        n /= 10;
-    } while (n != 0);
-    return s;
-}
-
 template<class R, class... A>
 using function_signature_t = R(A...);
 
@@ -144,12 +135,6 @@ struct default_def {
 
     struct vtable_type;
 
-    struct abi_type {
-        void *data;
-        type_info const *rtti;
-        vtable_type const *vt;
-    };
-
     static constexpr interface_version_t interface_version = get_interface_version(^^I);
 
     enum class field_kind {
@@ -203,7 +188,7 @@ struct default_def {
 
     template<meta::info Method, class R, class... A>
     struct method_pointer<Method, R(A...)> {
-        using type = R (*)(abi_type, A...);
+        using type = R (*)(interface_handle_type, A...);
     };
 
     template<meta::info Method>
@@ -213,8 +198,6 @@ struct default_def {
         std::vector<meta::info> members = {
             meta::data_member_spec(^^interface_version_t, {.name = "version"}),
         };
-        std::size_t method_index = 0;
-        std::size_t base_index = 0;
         for (auto desc : field_descriptors) {
             if (desc.kind == field_kind::base) {
                 members.push_back(meta::data_member_spec(
@@ -223,7 +206,7 @@ struct default_def {
                         {
                             meta::reflect_constant(desc.spec),
                         })),
-                    {.name = "base_" + to_decimal_string(base_index++)}));
+                    {.name = "_"}));
             }
             if (desc.kind == field_kind::method) {
                 members.push_back(meta::data_member_spec(
@@ -232,7 +215,7 @@ struct default_def {
                         {
                             meta::reflect_constant(desc.spec),
                         })),
-                    {.name = "method_" + to_decimal_string(method_index++)}));
+                    {.name = "_"}));
             }
         }
         meta::define_aggregate(^^vtable_type, members);
@@ -267,15 +250,14 @@ struct default_def {
     template<meta::info Method, meta::info Member, class R, class... A>
     struct automatic_method_invoker_t<Method, Member, R(A...)> {
         R operator()(interface_handle_type handle, A... args) const {
-            vtable_type const *vt = std::get<0>(handle.vtables);
+            vtable_type const *vt = proxy::get<0>(handle.vtables);
             constexpr since_t since_info = get_method_since(Method);
             if constexpr (since_info.default_impl != meta::info{}) {
                 if (vt->version < since_info.version) {
                     return [:since_info.default_impl:](handle, std::forward<A>(args)...);
                 }
             }
-            abi_type abi{handle.data, handle.rtti, vt};
-            return vt->[:Member:](abi, std::forward<A>(args)...);
+            return vt->[:Member:](handle, std::forward<A>(args)...);
         }
     };
 
@@ -448,11 +430,11 @@ struct default_def {
                 return {};
             }();
 
-            static R call(abi_type abi, A... args)
+            static R call(interface_handle_type handle, A... args)
                 requires(adaptor != meta::info{})
             {
-                object_handle_type handle(static_cast<Data *>(abi.data), abi.rtti, abi.vt);
-                return typename[:adaptor:](handle)(std::forward<A>(args)...);
+                object_handle_type object(static_cast<Data *>(handle.data), handle.rtti, handle.vtables);
+                return typename[:adaptor:](object)(std::forward<A>(args)...);
             }
         };
 

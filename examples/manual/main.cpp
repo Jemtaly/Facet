@@ -52,7 +52,7 @@ template<>
 struct direct_methods<IManualRoot> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("root_value", [](interface_handle<IManualRoot> handle) {
-            return std::get<0>(handle.vtables)->self->root_value(handle.data);
+            return proxy::get<0>(handle.vtables)->self->root_value(handle.data);
         }),
     };
 };
@@ -78,7 +78,7 @@ template<>
 struct direct_methods<IManualReader> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("read", [](interface_handle<IManualReader> handle) {
-            return std::get<0>(handle.vtables)->self->read(handle.data);
+            return proxy::get<0>(handle.vtables)->self->read(handle.data);
         }),
     };
 };
@@ -104,7 +104,7 @@ template<>
 struct direct_methods<IManualCounter> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("count", [](interface_handle<IManualCounter> handle) {
-            return std::get<0>(handle.vtables)->self->count(handle.data);
+            return proxy::get<0>(handle.vtables)->self->count(handle.data);
         }),
     };
 };
