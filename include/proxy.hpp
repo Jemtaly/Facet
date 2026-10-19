@@ -499,6 +499,9 @@ template<class Data, class I>
 struct vtable_implements;
 
 template<class Data, class I>
+concept implements = requires { vtable_implements<Data, I>::value; };
+
+template<class Data, class I>
 constexpr vtable_t<I> const *vtable_implements_v = vtable_implements<Data, I>::value;
 
 template<class Data, class... Is>

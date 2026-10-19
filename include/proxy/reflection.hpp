@@ -324,11 +324,13 @@ struct default_def {
 
         template<meta::info Base,
                  class Type = typename[:meta::type_of(Base):]>
+            requires(implements<Data, Type>)
         struct base_pointer {
             static constexpr vtable_t<Type> const *value = vtable_implements_v<Data, Type>;
         };
 
         template<meta::info Base>
+            requires requires { base_pointer<Base>::value; }
         static constexpr auto base_pointer_v = base_pointer<Base>::value;
 
         template<meta::info Method,
@@ -446,18 +448,41 @@ struct default_def {
                 return {};
             }();
 
-            static R call(abi_type abi, A... args) {
-                if constexpr (adaptor == meta::info{}) {
-                    static_assert(false, "proxy: no suitable implementation found");
-                } else {
-                    object_handle_type handle(static_cast<Data *>(abi.data), abi.rtti, abi.vt);
-                    return typename[:adaptor:](handle)(std::forward<A>(args)...);
-                }
+            static R call(abi_type abi, A... args)
+                requires(adaptor != meta::info{})
+            {
+                object_handle_type handle(static_cast<Data *>(abi.data), abi.rtti, abi.vt);
+                return typename[:adaptor:](handle)(std::forward<A>(args)...);
             }
         };
 
         template<meta::info Method>
-        static constexpr auto method_pointer_v = method_pointer<Method>::call;
+            requires requires { &method_pointer<Method>::call; }
+        static constexpr auto method_pointer_v = &method_pointer<Method>::call;
+
+        static constexpr bool has_value = [] {
+            for (auto desc : field_descriptors) {
+                if (desc.kind == field_kind::base) {
+                    if (!meta::can_substitute(
+                            ^^base_pointer_v,
+                            {
+                                meta::reflect_constant(desc.spec),
+                            })) {
+                        return false;
+                    }
+                }
+                if (desc.kind == field_kind::method) {
+                    if (!meta::can_substitute(
+                            ^^method_pointer_v,
+                            {
+                                meta::reflect_constant(desc.spec),
+                            })) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }();
 
         static constexpr vtable_type const *value = [] {
             std::vector<meta::info> members;
@@ -506,7 +531,8 @@ struct vtable {
 };
 
 template<class Data, class I>
-struct vtable_implements {
+    requires(detail::default_def<I>::template vtable_implements<Data>::has_value)
+struct vtable_implements<Data, I> {
     static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::value;
 };
 }
