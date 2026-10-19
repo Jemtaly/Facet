@@ -89,6 +89,55 @@ inline consteval meta::info method_signature(meta::info method) {
     return meta::dealias(meta::substitute(^^function_signature_t, components));
 }
 
+static consteval bool is_static_candidate_function(meta::info candidate) {
+    return meta::is_function(candidate) && meta::is_static_member(candidate);
+}
+
+static consteval bool is_member_candidate_function(meta::info candidate) {
+    return meta::is_function(candidate) &&
+           !meta::is_constructor(candidate) &&
+           !meta::is_destructor(candidate) &&
+           !meta::is_static_member(candidate);
+}
+
+static consteval void collect_static_candidates(
+    meta::info implementation, std::vector<meta::info> &out) {
+    for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
+        if (is_static_candidate_function(candidate)) {
+            out.push_back(candidate);
+        }
+    }
+    for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
+        collect_static_candidates(meta::type_of(base), out);
+    }
+}
+
+static consteval void collect_member_candidates(
+    meta::info implementation, std::vector<meta::info> &out) {
+    for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
+        if (is_member_candidate_function(candidate)) {
+            out.push_back(candidate);
+        }
+    }
+    for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
+        collect_member_candidates(meta::type_of(base), out);
+    }
+}
+
+template<class Data>
+static constexpr std::span<meta::info const> static_candidates_v = [] {
+    std::vector<meta::info> out;
+    collect_static_candidates(^^Data, out);
+    return std::define_static_array(out);
+}();
+
+template<class Data>
+static constexpr std::span<meta::info const> member_candidates_v = [] {
+    std::vector<meta::info> out;
+    collect_member_candidates(^^Data, out);
+    return std::define_static_array(out);
+}();
+
 template<class I>
 struct default_def {
     using interface_handle_type = interface_handle<I>;
@@ -273,173 +322,6 @@ struct default_def {
     struct vtable_implements {
         using object_handle_type = object_handle<Data, I>;
 
-        template<meta::info Candidate, class R, class... A>
-        static constexpr bool static_impl_r_v = requires(object_handle_type handle, A... args) {
-            { [:Candidate:](handle, std::forward<A>(args)...) } -> std::convertible_to<R>;
-        };
-
-        template<meta::info Candidate, class R, class... A>
-        static constexpr bool member_impl_r_v = requires(object_handle_type handle, A... args) {
-            { handle.get()->[:Candidate:](std::forward<A>(args)...) } -> std::convertible_to<R>;
-        };
-
-        template<meta::info Candidate, class R, class... A>
-        struct static_invoke_adaptor {
-            object_handle_type handle;
-
-            R operator()(A... args) const {
-                return [:Candidate:](handle, std::forward<A>(args)...);
-            }
-        };
-
-        template<meta::info Candidate, class R, class... A>
-        struct member_invoke_adaptor {
-            object_handle_type handle;
-
-            R operator()(A... args) const {
-                return handle.get()->[:Candidate:](std::forward<A>(args)...);
-            }
-        };
-
-        static consteval bool is_static_candidate_function(meta::info candidate) {
-            return meta::is_function(candidate) && meta::is_static_member(candidate);
-        }
-
-        static consteval bool is_member_candidate_function(meta::info candidate) {
-            return meta::is_function(candidate) &&
-                   !meta::is_constructor(candidate) &&
-                   !meta::is_destructor(candidate) &&
-                   !meta::is_static_member(candidate);
-        }
-
-        static consteval std::string implemented_name_of(meta::info function) {
-            return meta::has_identifier(function)
-                       ? std::string(meta::identifier_of(function))
-                       : std::string{};
-        }
-
-        static consteval void collect_static_candidates(
-            meta::info implementation, std::string_view name, std::vector<meta::info> &out) {
-            for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
-                if (is_static_candidate_function(candidate) &&
-                    implemented_name_of(candidate) == name) {
-                    out.push_back(candidate);
-                }
-            }
-            for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
-                collect_static_candidates(meta::type_of(base), name, out);
-            }
-        }
-
-        static consteval void collect_member_candidates(
-            meta::info implementation, std::string_view name, std::vector<meta::info> &out) {
-            for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
-                if (is_member_candidate_function(candidate) &&
-                    implemented_name_of(candidate) == name) {
-                    out.push_back(candidate);
-                }
-            }
-            for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
-                collect_member_candidates(meta::type_of(base), name, out);
-            }
-        }
-
-        static consteval std::vector<meta::info> invocability_args(
-            meta::info candidate, meta::info method) {
-            std::vector<meta::info> args = {
-                meta::reflect_constant(candidate),
-                meta::return_type_of(method),
-            };
-            for (meta::info parameter : meta::parameters_of(method)) {
-                args.push_back(meta::type_of(parameter));
-            }
-            return args;
-        }
-
-        static consteval bool static_candidate_impl(meta::info candidate, meta::info method) {
-            return meta::extract<bool>(meta::substitute(
-                ^^static_impl_r_v, invocability_args(candidate, method)));
-        }
-
-        static consteval bool static_candidate_exact(meta::info candidate, meta::info method) {
-            if (!static_candidate_impl(candidate, method)) {
-                return false;
-            }
-            auto candidate_params = meta::parameters_of(candidate);
-            auto method_params = meta::parameters_of(method);
-            std::size_t i = 0;
-            std::size_t j = 0;
-            if (i >= candidate_params.size() ||
-                !meta::is_same_type(
-                    meta::type_of(candidate_params[i++]),
-                    ^^object_handle_type)) {
-                return false;
-            }
-            while (i < candidate_params.size() && j < method_params.size()) {
-                if (!meta::is_same_type(
-                        meta::type_of(candidate_params[i++]),
-                        meta::type_of(method_params[j++]))) {
-                    return false;
-                }
-            }
-            return i == candidate_params.size() && j == method_params.size();
-        }
-
-        static consteval bool member_candidate_impl(meta::info candidate, meta::info method) {
-            return meta::extract<bool>(meta::substitute(
-                ^^member_impl_r_v, invocability_args(candidate, method)));
-        }
-
-        static consteval bool member_candidate_exact(meta::info candidate, meta::info method) {
-            if (!member_candidate_impl(candidate, method)) {
-                return false;
-            }
-            auto candidate_params = meta::parameters_of(candidate);
-            auto method_params = meta::parameters_of(method);
-            std::size_t i = 0;
-            std::size_t j = 0;
-            while (i < candidate_params.size() && j < method_params.size()) {
-                if (!meta::is_same_type(
-                        meta::type_of(candidate_params[i++]),
-                        meta::type_of(method_params[j++]))) {
-                    return false;
-                }
-            }
-            return i == candidate_params.size() && j == method_params.size();
-        }
-
-        static consteval meta::info resolve_impl(meta::info method) {
-            std::vector<meta::info> static_candidates;
-            std::vector<meta::info> member_candidates;
-            collect_static_candidates(^^Data, meta::identifier_of(method), static_candidates);
-            collect_member_candidates(^^Data, meta::identifier_of(method), member_candidates);
-            for (meta::info candidate : static_candidates) {
-                if (static_candidate_exact(candidate, method)) {
-                    return meta::dealias(meta::substitute(
-                        ^^static_invoke_adaptor, invocability_args(candidate, method)));
-                }
-            }
-            for (meta::info candidate : member_candidates) {
-                if (member_candidate_exact(candidate, method)) {
-                    return meta::dealias(meta::substitute(
-                        ^^member_invoke_adaptor, invocability_args(candidate, method)));
-                }
-            }
-            for (meta::info candidate : static_candidates) {
-                if (static_candidate_impl(candidate, method)) {
-                    return meta::dealias(meta::substitute(
-                        ^^static_invoke_adaptor, invocability_args(candidate, method)));
-                }
-            }
-            for (meta::info candidate : member_candidates) {
-                if (member_candidate_impl(candidate, method)) {
-                    return meta::dealias(meta::substitute(
-                        ^^member_invoke_adaptor, invocability_args(candidate, method)));
-                }
-            }
-            return {};
-        }
-
         template<meta::info Base,
                  class Type = typename[:meta::type_of(Base):]>
         struct base_pointer {
@@ -455,8 +337,116 @@ struct default_def {
 
         template<meta::info Method, class R, class... A>
         struct method_pointer<Method, R(A...)> {
+            static consteval bool is_qualified_name(meta::info candidate) {
+                return meta::has_identifier(candidate) &&
+                       meta::identifier_of(candidate) == meta::identifier_of(Method);
+            }
+
+            template<meta::info Candidate>
+                requires requires(object_handle_type handle, A... args) {
+                    { [:Candidate:](handle, std::forward<A>(args)...) } -> std::convertible_to<R>;
+                }
+            struct static_invoke_adaptor {
+                object_handle_type handle;
+
+                R operator()(A... args) const {
+                    return [:Candidate:](handle, std::forward<A>(args)...);
+                }
+            };
+
+            static consteval bool is_static_exact(meta::info candidate) {
+                auto candidate_params = meta::parameters_of(candidate);
+                auto method_params = meta::parameters_of(Method);
+                std::size_t i = 0;
+                std::size_t j = 0;
+                if (i >= candidate_params.size() ||
+                    !meta::is_same_type(
+                        meta::type_of(candidate_params[i++]),
+                        ^^object_handle_type)) {
+                    return false;
+                }
+                while (i < candidate_params.size() && j < method_params.size()) {
+                    if (!meta::is_same_type(
+                            meta::type_of(candidate_params[i++]),
+                            meta::type_of(method_params[j++]))) {
+                        return false;
+                    }
+                }
+                return i == candidate_params.size() && j == method_params.size();
+            }
+
+            template<meta::info Candidate>
+                requires requires(object_handle_type handle, A... args) {
+                    { handle.get()->[:Candidate:](std::forward<A>(args)...) } -> std::convertible_to<R>;
+                }
+            struct member_invoke_adaptor {
+                object_handle_type handle;
+
+                R operator()(A... args) const {
+                    return handle.get()->[:Candidate:](std::forward<A>(args)...);
+                }
+            };
+
+            static consteval bool is_member_exact(meta::info candidate) {
+                auto candidate_params = meta::parameters_of(candidate);
+                auto method_params = meta::parameters_of(Method);
+                std::size_t i = 0;
+                std::size_t j = 0;
+                while (i < candidate_params.size() && j < method_params.size()) {
+                    if (!meta::is_same_type(
+                            meta::type_of(candidate_params[i++]),
+                            meta::type_of(method_params[j++]))) {
+                        return false;
+                    }
+                }
+                return i == candidate_params.size() && j == method_params.size();
+            }
+
+            static constexpr meta::info adaptor = [] -> meta::info {
+                std::vector<meta::info> exact_static_matches;
+                std::vector<meta::info> exact_member_matches;
+                std::vector<meta::info> static_matches;
+                std::vector<meta::info> member_matches;
+                for (meta::info candidate : static_candidates_v<Data>) {
+                    if (is_qualified_name(candidate)) {
+                        if (meta::can_substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)})) {
+                            auto adaptor = meta::dealias(meta::substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)}));
+                            if (is_static_exact(candidate)) {
+                                exact_static_matches.push_back(adaptor);
+                            } else {
+                                static_matches.push_back(adaptor);
+                            }
+                        }
+                    }
+                }
+                for (meta::info candidate : member_candidates_v<Data>) {
+                    if (is_qualified_name(candidate)) {
+                        if (meta::can_substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)})) {
+                            auto adaptor = meta::dealias(meta::substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)}));
+                            if (is_member_exact(candidate)) {
+                                exact_member_matches.push_back(adaptor);
+                            } else {
+                                member_matches.push_back(adaptor);
+                            }
+                        }
+                    }
+                }
+                for (meta::info match : exact_static_matches) {
+                    return match;
+                }
+                for (meta::info match : exact_member_matches) {
+                    return match;
+                }
+                for (meta::info match : static_matches) {
+                    return match;
+                }
+                for (meta::info match : member_matches) {
+                    return match;
+                }
+                return {};
+            }();
+
             static R call(abi_type abi, A... args) {
-                constexpr meta::info adaptor = resolve_impl(Method);
                 if constexpr (adaptor == meta::info{}) {
                     static_assert(false, "proxy: no suitable implementation found");
                 } else {
@@ -469,7 +459,7 @@ struct default_def {
         template<meta::info Method>
         static constexpr auto method_pointer_v = method_pointer<Method>::call;
 
-        static constexpr vtable_type const *pointer = [] {
+        static constexpr vtable_type const *value = [] {
             std::vector<meta::info> members;
             for (auto desc : field_descriptors) {
                 if (desc.kind == field_kind::base) {
@@ -517,6 +507,6 @@ struct vtable {
 
 template<class Data, class I>
 struct vtable_implements {
-    static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::pointer;
+    static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::value;
 };
 }
