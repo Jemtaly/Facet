@@ -60,37 +60,41 @@ constexpr inline std::span<meta::info const> all_data_members_v = std::define_st
 // ============================================================================
 
 namespace proxy {
-struct fixed_string {
-    static constexpr std::size_t capacity = 64;
+struct static_string {
+    char const *data;
+    std::size_t size;
 
-    char data[capacity] = {};
-    std::size_t size = 0;
+    template<char... Cs>
+    struct literal {
+        static constexpr char data[] = {Cs..., '\0'};
+        static constexpr size_t size = sizeof...(Cs);
+        static constexpr static_string value = {data, size};
+    };
+
+    template<char... Cs>
+    static constexpr static_string literal_v = literal<Cs...>::value;
+
+    static consteval static_string make(std::string_view s) {
+        std::vector<std::meta::info> args;
+        for (char c : s) {
+            args.push_back(std::meta::reflect_constant(c));
+        }
+        return std::meta::extract<static_string>(std::meta::substitute(^^literal_v, args));
+    }
 
     constexpr std::string_view view() const noexcept {
         return {data, size};
     }
 };
 
-consteval fixed_string make_fixed_string(std::string_view s) {
-    if (s.size() >= fixed_string::capacity) {
-        detail::compile_time_error("proxy: annotation string too long (max 63 chars)");
-    }
-    fixed_string result;
-    for (std::size_t i = 0; i < s.size(); ++i) {
-        result.data[i] = s[i];
-    }
-    result.size = s.size();
-    return result;
-}
-
 struct direct_method_t {
-    fixed_string name;
+    static_string name;
     std::meta::info invoker;
 };
 
 template<class Invoker>
 consteval direct_method_t direct_method(std::string_view name, Invoker invoker) {
-    return {make_fixed_string(name), std::meta::reflect_constant(invoker)};
+    return {static_string::make(name), std::meta::reflect_constant(invoker)};
 }
 
 struct direct_base_t {

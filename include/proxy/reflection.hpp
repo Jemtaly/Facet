@@ -19,11 +19,11 @@ namespace proxy {
 // [[=uuid("...")]] assigns a non-empty id used to find the interface during
 // runtime cross-casts.
 struct uuid_t {
-    fixed_string value;
+    static_string value;
 };
 
 consteval uuid_t uuid(std::string_view value) {
-    return {make_fixed_string(value)};
+    return {static_string::make(value)};
 }
 
 using interface_version_t = std::uint64_t;
@@ -56,7 +56,7 @@ concept has_uuid = !meta::annotations_of_with_type(^^I, ^^uuid_t).empty();
 
 inline consteval interface_id_t get_interface_id(meta::info I) {
     auto annotations = meta::annotations_of_with_type(I, ^^uuid_t);
-    return std::define_static_string(meta::extract<uuid_t>(annotations[0]).value.view());
+    return meta::extract<uuid_t>(annotations[0]).value.data;
 }
 
 inline consteval interface_version_t get_interface_version(meta::info I) {
@@ -303,7 +303,7 @@ struct default_def {
             }
             if (desc.kind == field_kind::method) {
                 methods.emplace_back(
-                    make_fixed_string(meta::identifier_of(desc.spec)),
+                    static_string::make(meta::identifier_of(desc.spec)),
                     meta::substitute(
                         ^^automatic_method_invoker,
                         {
