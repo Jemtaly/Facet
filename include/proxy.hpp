@@ -243,14 +243,10 @@ using vtable_t = typename vtable<I>::type;
 template<class To, class From>
 struct vtable_upcast_customizer;
 
-template<class To>
-struct vtable_dycast_customizer;
-
 template<class To, class From>
-concept upcastable_from = vtable_upcast_customizer<To, From>::value;
-
-template<class To>
-concept dycastable = vtable_dycast_customizer<To>::value;
+concept upcastable_from = requires(vtable_t<From> const *vt) {
+    { vtable_upcast_customizer<To, From>()(vt) } -> std::same_as<vtable_t<To> const *>;
+};
 
 template<class To, class From>
 constexpr vtable_t<To> const *vtable_upcast(vtable_t<From> const *vt) noexcept {
@@ -260,17 +256,8 @@ constexpr vtable_t<To> const *vtable_upcast(vtable_t<From> const *vt) noexcept {
     return vtable_upcast_customizer<To, From>()(vt);
 }
 
-template<class To>
-constexpr vtable_t<To> const *vtable_dycast(type_info const *rtti, void *data) noexcept {
-    if (data == nullptr) {
-        return nullptr;
-    }
-    return vtable_dycast_customizer<To>()(rtti, data);
-}
-
 template<class To, class From>
-struct vtable_upcast_customizer {
-    static constexpr bool value = [] {
+    requires([] {
         if constexpr (std::is_same_v<To, From>) {
             return true;
         }
@@ -281,8 +268,8 @@ struct vtable_upcast_customizer {
             }
         }
         return false;
-    }();
-
+    }())
+struct vtable_upcast_customizer<To, From> {
     constexpr vtable_t<To> const *operator()(vtable_t<From> const *vt) const noexcept {
         if constexpr (std::is_same_v<To, From>) {
             return vt;
@@ -298,9 +285,23 @@ struct vtable_upcast_customizer {
 };
 
 template<class To>
-struct vtable_dycast_customizer {
-    static constexpr bool value = has_interface_id<To>;
+struct vtable_dycast_customizer;
 
+template<class To>
+concept dycastable = requires(type_info const *rtti, void *data) {
+    { vtable_dycast_customizer<To>()(rtti, data) } -> std::same_as<vtable_t<To> const *>;
+};
+
+template<class To>
+constexpr vtable_t<To> const *vtable_dycast(type_info const *rtti, void *data) noexcept {
+    if (data == nullptr) {
+        return nullptr;
+    }
+    return vtable_dycast_customizer<To>()(rtti, data);
+}
+
+template<has_interface_id To>
+struct vtable_dycast_customizer<To> {
     constexpr vtable_t<To> const *operator()(type_info const *rtti, void *data) const noexcept {
         return static_cast<vtable_t<To> const *>(rtti->query_vtable_ptr(data, interface_id_v<To>));
     }
