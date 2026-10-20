@@ -30,7 +30,7 @@ $env:CXX = "C:\path\to\compiler.exe"
 | Header | Purpose |
 | --- | --- |
 | [`<proxy.hpp>`](./include/proxy.hpp) | Core handles, interface protocol types, generated facade dispatch, conversions, and implementation lookup |
-| [`<proxy/reflection.hpp>`](./include/proxy/reflection.hpp) | Reflection-generated protocol and the `uuid`, `version`, and `since` annotations |
+| [`<proxy/reflection.hpp>`](./include/proxy/reflection.hpp) | Reflection-generated protocol and the `spec`, `uuid`, `version`, `since`, and `adaptor` annotations |
 | [`<proxy/memory.hpp>`](./include/proxy/memory.hpp) | Shared and unique ownership wrappers and factories; includes `<proxy.hpp>` |
 
 ## Quick start
@@ -43,7 +43,7 @@ Include the core library and reflection support, declare an interface, and creat
 
 #include <string>
 
-struct IGreeter {
+struct [[= proxy::spec]] IGreeter {
     std::string greet() const;
 };
 
@@ -91,10 +91,10 @@ An interface call is not generally a zero-overhead abstraction in the strict sen
 
 ### 1. Declare a reflective interface
 
-With `<proxy/reflection.hpp>` included, Proxy uses static reflection to turn an interface declaration into its protocol definition. An interface must be a class type whose non-special members are non-static, non-template, non-operator member functions. The declarations describe the callable surface; they do not need definitions.
+With `<proxy/reflection.hpp>` included, Proxy uses static reflection to turn an interface declaration into its protocol definition. Mark each reflective interface with `[[= proxy::spec]]`; unmarked types are not given the generated protocol. An interface must be a class type whose non-special members are non-static, non-template, non-operator member functions. The declarations describe the callable surface; they do not need definitions.
 
 ```cpp
-struct ICounter {
+struct [[= proxy::spec]] ICounter {
     int count() const;
     void reset();
 };
@@ -132,11 +132,11 @@ erased->reset();
 An implementation can expose more than one interface in a single handle:
 
 ```cpp
-struct ICountable {
+struct [[= proxy::spec]] ICountable {
     int count() const;
 };
 
-struct IResettable {
+struct [[= proxy::spec]] IResettable {
     void reset();
 };
 
@@ -152,11 +152,11 @@ For every interface method, Proxy searches public functions with the same name o
 A static implementation receives an `object_handle<Implementation, Interface>` as its first parameter. This makes the selected interface explicit and allows the implementation to access the original object through `self.get()`:
 
 ```cpp
-struct ILeft {
+struct [[= proxy::spec]] ILeft {
     int value() const;
 };
 
-struct IRight {
+struct [[= proxy::spec]] IRight {
     int value() const;
 };
 
@@ -179,7 +179,7 @@ assert(handle.as<IRight>()->value() == 2);
 Regular overloads are also supported:
 
 ```cpp
-struct ICalculator {
+struct [[= proxy::spec]] ICalculator {
     int calculate() const;
     int calculate(int value) const;
 };
@@ -211,16 +211,39 @@ Each candidate's result must be convertible to the interface method's result. Co
 
 If Proxy finds no suitable candidate for an interface method, instantiating that implementation's function table fails at compile time.
 
+To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `proxy::adaptor`. The adaptor is called with an `object_handle<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adaptor takes precedence over automatic lookup:
+
+```cpp
+struct [[= proxy::spec]] IDerived {
+    [[= proxy::adaptor([](auto self) {
+        return self.get()->impl_derived();
+    })]]
+    int derived() const;
+};
+
+struct Derived {
+    int impl_derived() const {
+        return 34;
+    }
+};
+
+Derived implementation;
+auto derived = proxy::as_handle<IDerived>(&implementation);
+assert(derived->derived() == 34);
+```
+
+The lambda can also accept the interface method's arguments and use the object handle to access the implementation, making it possible to rename or transform a call without adding a matching implementation member.
+
 ### 4. Model interface inheritance and conversions
 
 Interface inheritance is declarative and independent of the implementation type. Proxy generates the base-vtable links from the interface declaration, so derived handles convert to their base interfaces.
 
 ```cpp
-struct IValue {
+struct [[= proxy::spec]] IValue {
     int value() const;
 };
 
-struct IAdjustable : IValue {
+struct [[= proxy::spec]] IAdjustable : IValue {
     void add(int amount);
 };
 
@@ -250,15 +273,15 @@ This applies to transitive and multiple interface inheritance. An inheritance up
 A handle preserves runtime type information for the interfaces it exposes. Constructing another `interface_handle` from it performs a runtime interface query: the result is non-null when the object supports the requested interface and null otherwise.
 
 ```cpp
-struct IRoot {
+struct [[= proxy::spec]] IRoot {
     int root() const;
 };
 
-struct IExtra {
+struct [[= proxy::spec]] IExtra {
     int extra() const;
 };
 
-struct IAbsent {
+struct [[= proxy::spec]] IAbsent {
     int absent() const;
 };
 
@@ -300,7 +323,7 @@ Include `<proxy/memory.hpp>` for owning wrappers. The library provides `make_sha
 ```cpp
 #include <proxy/memory.hpp>
 
-struct ICounter {
+struct [[= proxy::spec]] ICounter {
     int count() const;
 };
 
@@ -330,7 +353,7 @@ assert(owner->count() == 42);
 Derive a shared implementation from `proxy::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle, calls `proxy::recover_shared`, and converts the resulting view to a shared type-erased holder.
 
 ```cpp
-struct ISelf {
+struct [[= proxy::spec]] ISelf {
     proxy::interface_holder<ISelf> self() const;
 };
 
@@ -354,7 +377,8 @@ For runtime interface lookup across dynamic libraries, annotate every shared int
 #include <proxy.hpp>
 #include <proxy/reflection.hpp>
 
-struct [[= proxy::uuid("example.service.v1")]] IService {
+struct [[= proxy::spec]]
+       [[= proxy::uuid("example.service.v1")]] IService {
     int value() const;
 };
 ```
@@ -379,7 +403,8 @@ Use `proxy::version` to mark the interface version embedded in its generated fun
 #define EXAMPLE_API_LEVEL 2
 #endif
 
-struct [[= proxy::uuid("example.versioned-service")]]
+struct [[= proxy::spec]]
+       [[= proxy::uuid("example.versioned-service")]]
        [[= proxy::version(EXAMPLE_API_LEVEL)]] IService {
     int value() const;
 
@@ -405,6 +430,8 @@ Reflection is the preferred path for ordinary C++ interface declarations. When t
 5. `vtable_implements<Impl, I>` defines `static constexpr vtable_t<I> const* value`, the table used when `Impl` is adapted as `I`.
 
 The protocol is what powers the reflective path as well: base metadata determines hierarchy conversions, method metadata builds the call facade, interface identifiers enable runtime lookup, and implementation tables select the actual dispatch targets. All table pointers, base converters, and invokers must remain valid for the lifetime of every handle that refers to them. Prefer static-storage tables and keep the method names and invoker signatures consistent with the interface facade.
+
+An `object_handle` stores its vtable pointers in `proxy::tuple`, which is an ABI-stable version of `std::tuple`; use `proxy::get<I>(handle.vtables)` or `proxy::apply` to access them rather than `std::get` or `std::apply`.
 
 ## Appendix: examples and verification
 
