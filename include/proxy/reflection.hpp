@@ -12,24 +12,14 @@
 #include <proxy.hpp>
 
 // ============================================================================
-// Annotations
+// Reflection utilities
 // ============================================================================
 
 namespace proxy {
-// [[=uuid("...")]] assigns a non-empty id used to find the interface during
-// runtime cross-casts.
-struct uuid_t {
-    static_string value;
-};
-
-consteval uuid_t uuid(std::string_view value) {
-    return {static_string::make(value)};
-}
-
 // [[=spec]] marks a type as a proxy interface specification.
 struct spec_t {};
 
-inline constexpr spec_t spec{};
+constexpr inline spec_t spec{};
 
 using interface_version_t = std::uint64_t;
 
@@ -67,14 +57,6 @@ consteval adaptor_t adaptor(Func func) {
 }
 
 namespace detail {
-template<class I>
-concept has_uuid = !meta::annotations_of_with_type(^^I, ^^uuid_t).empty();
-
-inline consteval interface_id_t get_interface_id(meta::info I) {
-    auto annotations = meta::annotations_of_with_type(I, ^^uuid_t);
-    return meta::extract<uuid_t>(annotations[0]).value.data;
-}
-
 template<class I>
 concept is_spec = !meta::annotations_of_with_type(^^I, ^^spec_t).empty();
 
@@ -511,11 +493,6 @@ struct default_def {
     };
 };
 }
-
-template<detail::has_uuid I>
-struct interface_id<I> {
-    static constexpr interface_id_t value = detail::get_interface_id(^^I);
-};
 
 template<detail::is_spec I>
 struct direct_methods<I> {

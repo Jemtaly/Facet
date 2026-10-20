@@ -4,15 +4,18 @@
 #include <proxy.hpp>
 #include <proxy/reflection.hpp>
 
-struct[[= proxy::spec]] IRoot {
+struct[[= proxy::spec]]
+      [[= proxy::local_id]] IRoot {
     int root() const;
 };
 
-struct[[= proxy::spec]] IExtra {
+struct[[= proxy::spec]]
+      [[= proxy::local_id]] IExtra {
     int extra() const;
 };
 
-struct[[= proxy::spec]] IAbsent {
+struct[[= proxy::spec]]
+      [[= proxy::local_id]] IAbsent {
     int absent() const;
 };
 
@@ -46,7 +49,8 @@ void test_dynamic_cast() {
 }
 
 template<typename T>
-struct[[= proxy::spec]] ITemplate {
+struct[[= proxy::spec]]
+      [[= proxy::local_id]] ITemplate {
     T value() const;
 };
 

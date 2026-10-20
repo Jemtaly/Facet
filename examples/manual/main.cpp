@@ -161,6 +161,69 @@ void test_manual_counter() {
     assert(recast->count() == 42);
 }
 
+template<typename T>
+struct IManualValue;
+
+namespace proxy {
+template<typename T>
+struct interface_id<IManualValue<T>> {
+    static constexpr interface_id_t value =
+        static_string::make(std::meta::display_string_of(^^IManualValue<T>)).data;
+};
+
+template<typename T>
+struct vtable<IManualValue<T>> {
+    struct type {
+        T (*value)(void *);;
+    };
+};
+
+template<typename T>
+struct direct_bases<IManualValue<T>> {
+    static constexpr std::array<direct_base_t, 0> value = {};
+};
+
+template<typename T>
+struct direct_methods<IManualValue<T>> {
+    static constexpr std::array<direct_method_t, 1> value = {
+        direct_method("value", [](interface_handle<IManualValue<T>> handle) {
+            return proxy::get<0>(handle.vtables)->value(handle.data);
+        }),
+    };
+};
+
+template<typename Impl, typename T>
+struct vtable_implements<Impl, IManualValue<T>> {
+    static T invoke(void *data) {
+        return static_cast<Impl *>(data)->value;
+    }
+
+    static constexpr vtable_t<IManualValue<T>> table{
+        .value = invoke,
+    };
+    static constexpr vtable_t<IManualValue<T>> const *value = &table;
+};
+}
+
+struct ValueModel {
+    int value;
+};
+
+#include<cstdio>
+
+void test_manual_template_interface() {
+    ValueModel model{56};
+    auto handle = proxy::as_handle<IManualValue<int>>(&model);
+    proxy::data_handle data = handle;
+
+    proxy::interface_handle<IManualValue<int>> value{data};
+    assert(value);
+    assert(value->value() == 56);
+
+    proxy::interface_handle<IManualValue<double>> wrong_value{data};
+    assert(!wrong_value);
+}
+
 struct IManualBase {};
 
 namespace proxy {
@@ -229,5 +292,6 @@ void test_manual_derived() {
 
 int main() {
     test_manual_counter();
+    test_manual_template_interface();
     test_manual_derived();
 }

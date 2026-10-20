@@ -29,8 +29,8 @@ $env:CXX = "C:\path\to\compiler.exe"
 
 | Header | Purpose |
 | --- | --- |
-| [`<proxy.hpp>`](./include/proxy.hpp) | Core handles, interface protocol types, generated facade dispatch, conversions, and implementation lookup |
-| [`<proxy/reflection.hpp>`](./include/proxy/reflection.hpp) | Reflection-generated protocol and the `spec`, `uuid`, `version`, `since`, and `adaptor` annotations |
+| [`<proxy.hpp>`](./include/proxy.hpp) | Core handles, interface protocol types, generated facade dispatch, conversions, implementation lookup, and the `local_id` and `uuid` interface-ID annotations |
+| [`<proxy/reflection.hpp>`](./include/proxy/reflection.hpp) | Reflection-generated protocol and the `spec`, `version`, `since`, and `adaptor` annotations |
 | [`<proxy/memory.hpp>`](./include/proxy/memory.hpp) | Shared and unique ownership wrappers and factories; includes `<proxy.hpp>` |
 
 ## Quick start
@@ -270,18 +270,21 @@ This applies to transitive and multiple interface inheritance. An inheritance up
 
 ### 5. Query optional interfaces at runtime
 
-A handle preserves runtime type information for the interfaces it exposes. Constructing another `interface_handle` from it performs a runtime interface query: the result is non-null when the object supports the requested interface and null otherwise.
+A handle preserves runtime type information for the interfaces it exposes. To make a reflective interface discoverable by a runtime query, give it an interface ID. Use `[[= proxy::local_id]]` when every query is within the same translation unit; use `[[= proxy::uuid("...")]]` when the interface is shared between translation units or dynamic libraries. Constructing another `interface_handle` from a handle then performs a runtime interface query: the result is non-null when the object supports the requested interface and null otherwise.
 
 ```cpp
-struct [[= proxy::spec]] IRoot {
+struct [[= proxy::spec]]
+       [[= proxy::local_id]] IRoot {
     int root() const;
 };
 
-struct [[= proxy::spec]] IExtra {
+struct [[= proxy::spec]]
+       [[= proxy::local_id]] IExtra {
     int extra() const;
 };
 
-struct [[= proxy::spec]] IAbsent {
+struct [[= proxy::spec]]
+       [[= proxy::local_id]] IAbsent {
     int absent() const;
 };
 
@@ -371,7 +374,7 @@ proxy::interface_holder<ISelf> retained = object->self();
 
 ### 7. Cross a dynamic-library boundary
 
-For runtime interface lookup across dynamic libraries, annotate every shared interface with a non-empty UUID. The UUID becomes the stable identifier used by cross-casts rather than relying on process-local type identity. The default interface ID is empty and does not match by value, so an unannotated interface can be used directly and through declared base conversions but cannot be reliably discovered by a cross-cast across separately built modules.
+For runtime interface lookup across dynamic libraries, annotate every shared interface with a non-empty UUID. The UUID becomes the stable identifier used by cross-casts rather than relying on process-local type identity. `local_id` is valid only in its declaring translation unit. An interface without `local_id`, `uuid`, or a manually supplied `interface_id` can be used directly and through declared base conversions, but cannot be the target of a runtime cross-cast.
 
 ```cpp
 #include <proxy.hpp>
@@ -423,13 +426,30 @@ Build an older provider with `EXAMPLE_API_LEVEL` set to `1`. A version-2 consume
 
 Reflection is the preferred path for ordinary C++ interface declarations. When that path is unavailable or deliberately avoided, Proxy's public non-reflective protocol can describe the same interface explicitly. Provide the following specializations in the `proxy` namespace:
 
-1. `interface_id<I>` defines `static constexpr interface_id_t value`. Use a non-empty stable value whenever the interface must be found by runtime cross-cast, especially across dynamic-library boundaries.
+1. Optionally, `interface_id<I>` defines `static constexpr interface_id_t value`. Its presence enables runtime cross-casts to `I`; use a non-empty stable value whenever the interface must be found across translation units or dynamic-library boundaries.
 2. `vtable<I>` defines `type`, the function-table type for `I`. Its layout is application-defined.
 3. `direct_bases<I>` exposes `value`, a `std::array` or span of `direct_base_t` entries. Each `direct_base<Base>(converter)` records a direct base and a converter from `vtable_t<I> const*` to `vtable_t<Base> const*`.
 4. `direct_methods<I>` exposes `value`, a `std::array` or span of `direct_method_t` entries. Each `direct_method(name, invoker)` maps a method name to an invoker callable with `interface_handle<I>` followed by that method's arguments.
 5. `vtable_implements<Impl, I>` defines `static constexpr vtable_t<I> const* value`, the table used when `Impl` is adapted as `I`.
 
 The protocol is what powers the reflective path as well: base metadata determines hierarchy conversions, method metadata builds the call facade, interface identifiers enable runtime lookup, and implementation tables select the actual dispatch targets. All table pointers, base converters, and invokers must remain valid for the lifetime of every handle that refers to them. Prefer static-storage tables and keep the method names and invoker signatures consistent with the interface facade.
+
+For a manual interface template, specialize `interface_id` for the template. A controlled build can generate a distinct ID for each specialization from the reflected type:
+
+```cpp
+template<typename T>
+struct IManualValue {};
+
+namespace proxy {
+template<typename T>
+struct interface_id<IManualValue<T>> {
+    static constexpr interface_id_t value =
+        static_string::make(std::meta::display_string_of(^^IManualValue<T>)).data;
+};
+}
+```
+
+`std::meta::display_string_of` distinguishes template specializations, so a runtime query can find `IManualValue<int>` while rejecting `IManualValue<double>` for the same object. Its spelling is compiler-defined; use an explicit, stable ID instead when interfaces cross a dynamic-library, compiler, or independently versioned build boundary. Provide the corresponding partial specializations of `vtable`, `direct_bases`, `direct_methods`, and `vtable_implements`.
 
 An `object_handle` stores its vtable pointers in `proxy::tuple`, which is an ABI-stable version of `std::tuple`; use `proxy::get<I>(handle.vtables)` or `proxy::apply` to access them rather than `std::get` or `std::apply`.
 
@@ -442,7 +462,7 @@ The [`examples/`](./examples/) directory contains self-contained programs:
 | [`basic`](./examples/basic/main.cpp) | Basic interfaces, interface templates, and hierarchy conversions |
 | [`dynamic_cast`](./examples/dynamic_cast/main.cpp) | Runtime interface queries from interface and data handles |
 | [`dispatch`](./examples/dispatch/main.cpp) | Overloads, automatic dispatch, and interface-specific static dispatch |
-| [`manual`](./examples/manual/main.cpp) | Explicit vtable and metadata specializations |
+| [`manual`](./examples/manual/main.cpp) | Explicit vtable and metadata specializations, including template interface IDs |
 | [`memory`](./examples/memory/main.cpp) | Shared, unique, and borrowed wrappers |
 | [`abi`](./examples/abi/main.cpp) | Shared-library interfaces identified by UUID |
 | [`evolution`](./examples/evolution/main.cpp) | Versioned interfaces with method fallbacks |

@@ -164,9 +164,10 @@ namespace proxy {
 using interface_id_t = char const *;
 
 template<class I>
-struct interface_id {
-    static constexpr char value[] = "";
-};
+struct interface_id;
+
+template<class I>
+concept has_interface_id = requires { interface_id<I>::value; };
 
 template<class I>
 constexpr inline interface_id_t interface_id_v = interface_id<I>::value;
@@ -179,6 +180,45 @@ inline bool interface_id_equal(interface_id_t lhs, interface_id_t rhs) noexcept 
     std::string_view rsv(rhs);
     return !lsv.empty() && !rsv.empty() && lsv == rsv;
 }
+
+// [[=local_id]] assigns a non-empty id used to find the interface during
+// runtime cross-casts, but it is only valid within the current translation unit.
+struct local_id_t {};
+
+constexpr inline local_id_t local_id{};
+
+// [[=uuid("...")]] assigns a non-empty id used to find the interface during
+// runtime cross-casts.
+struct uuid_t {
+    static_string value;
+};
+
+consteval uuid_t uuid(std::string_view value) {
+    return {static_string::make(value)};
+}
+
+namespace detail {
+template<class I>
+concept has_local_id = !meta::annotations_of_with_type(^^I, ^^local_id_t).empty();
+
+template<class I>
+concept has_uuid = !meta::annotations_of_with_type(^^I, ^^uuid_t).empty();
+
+inline consteval interface_id_t get_interface_id(meta::info I) {
+    auto annotations = meta::annotations_of_with_type(I, ^^uuid_t);
+    return meta::extract<uuid_t>(annotations[0]).value.data;
+}
+}
+
+template<detail::has_local_id I>
+struct interface_id<I> {
+    static constexpr char value[] = "";
+};
+
+template<detail::has_uuid I>
+struct interface_id<I> {
+    static constexpr interface_id_t value = detail::get_interface_id(^^I);
+};
 }
 
 // ============================================================================
@@ -259,7 +299,7 @@ struct vtable_upcast_customizer {
 
 template<class To>
 struct vtable_dycast_customizer {
-    static constexpr bool value = true;
+    static constexpr bool value = has_interface_id<To>;
 
     constexpr vtable_t<To> const *operator()(type_info const *rtti, void *data) const noexcept {
         return static_cast<vtable_t<To> const *>(rtti->query_vtable_ptr(data, interface_id_v<To>));
@@ -554,8 +594,10 @@ struct static_policy {
                 using I = typename[:i:];
                 template for (constexpr std::meta::info j : detail::interface_closure_v<I>) {
                     using J = typename[:j:];
-                    if (interface_id_equal(id, interface_id_v<J>)) {
-                        return vtable_upcast<J, I>(vtable_ptr<I>);
+                    if constexpr (has_interface_id<J>) {
+                        if (interface_id_equal(id, interface_id_v<J>)) {
+                            return vtable_upcast<J, I>(vtable_ptr<I>);
+                        }
                     }
                 }
             }
