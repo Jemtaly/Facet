@@ -57,7 +57,7 @@ struct Greeter {
 
 int main() {
     Greeter implementation{"Facet"};
-    fct::interface_handle<IGreeter> greeter = fct::as_handle<IGreeter>(&implementation);
+    fct::facets<IGreeter> greeter = fct::as_facets<IGreeter>(&implementation);
 
     return greeter->greet() == "Hello, Facet" ? 0 : 1;
 }
@@ -69,12 +69,12 @@ Compile it as follows:
 g++-16 -std=c++26 -freflection -Iinclude example.cpp -o example
 ```
 
-`fct::as_handle` borrows the supplied object. The caller must keep that object alive while any handle that refers to it is used.
+`fct::as_facets` borrows the supplied object. The caller must keep that object alive while any handle that refers to it is used.
 
 ## Capabilities at a glance
 
 1. **Separated, reflection-generated architecture** — interface declarations are separate from implementation types. Static reflection turns the interface declarations into vtables, invokers, inheritance metadata, and dispatch code at compile time.
-2. **Non-intrusive adaptation and composition** — `fct::as_handle` adapts an object without base classes, virtual members, registration, or implementation annotations. One object can expose multiple independent interfaces.
+2. **Non-intrusive adaptation and composition** — `fct::as_facets` adapts an object without base classes, virtual members, registration, or implementation annotations. One object can expose multiple independent interfaces.
 3. **Predictable method resolution** — public members of an implementation and its public bases participate in method resolution. Static interface-aware functions and ordinary member functions can coexist under explicit precedence rules.
 4. **Interface inheritance and conversions** — interfaces may have transitive or multiple inheritance; handles convert through that hierarchy and can query other interfaces at runtime.
 5. **Ownership-aware type erasure** — borrowed, shared, and unique wrappers preserve interface access while making lifetime semantics explicit.
@@ -83,7 +83,7 @@ g++-16 -std=c++26 -freflection -Iinclude example.cpp -o example
 
 ### Cost model
 
-Facet does not allocate when creating a borrowed handle with `as_handle`; it stores an object pointer, type information, and vtable pointers. Reflection generation, interface metadata construction, and method-selection analysis occur at compile time.
+Facet does not allocate when creating a borrowed handle with `as_facets`; it stores an object pointer, type information, and vtable pointers. Reflection generation, interface metadata construction, and method-selection analysis occur at compile time.
 
 An interface call is not generally a zero-overhead abstraction in the strict sense: it dispatches through a generated vtable function pointer. An inheritance upcast uses generated vtable links and does not perform a runtime interface lookup. A runtime cross-cast queries the object's interface metadata and compares interface identifiers, so its cost depends on the exposed interface closure. Shared and unique factories allocate their respective control block and object. These properties should be measured in the target build when call overhead is performance-critical.
 
@@ -120,14 +120,14 @@ struct Counter {
 };
 
 Counter counter{42};
-fct::interface_handle<ICounter> erased = fct::as_handle<ICounter>(&counter);
+fct::facets<ICounter> erased = fct::as_facets<ICounter>(&counter);
 
 assert(erased);
 assert(erased->count() == 42);
 erased->reset();
 ```
 
-`fct::as_handle<I...>(pointer)` returns an `object_handle` that exposes the listed interfaces. `fct::interface_handle<I...>` is its type-erased alias. A handle is nullable, supports `operator bool`, and is non-owning: use it for objects owned elsewhere, including stack objects, and do not access it after the original object is destroyed.
+`fct::as_facets<I...>(pointer)` returns an `typed_facets` that exposes the listed interfaces. `fct::facets<I...>` is its type-erased alias. A handle is nullable, supports `operator bool`, and is non-owning: use it for objects owned elsewhere, including stack objects, and do not access it after the original object is destroyed.
 
 An implementation can expose more than one interface in a single handle:
 
@@ -140,7 +140,7 @@ struct [[= fct::spec]] IResettable {
     void reset();
 };
 
-auto interfaces = fct::as_handle<ICountable, IResettable>(&counter);
+auto interfaces = fct::as_facets<ICountable, IResettable>(&counter);
 assert(interfaces->count() == 42);
 interfaces->reset();
 ```
@@ -149,7 +149,7 @@ interfaces->reset();
 
 For every interface method, Facet searches public functions with the same name on the implementation type and its public bases. Both ordinary non-static member functions and static member functions are valid implementations.
 
-A static implementation receives an `object_handle<Implementation, Interface>` as its first parameter. This makes the selected interface explicit and allows the implementation to access the original object through `self.get()`:
+A static implementation receives an `typed_facets<Implementation, Interface>` as its first parameter. This makes the selected interface explicit and allows the implementation to access the original object through `self.get()`:
 
 ```cpp
 struct [[= fct::spec]] ILeft {
@@ -161,17 +161,17 @@ struct [[= fct::spec]] IRight {
 };
 
 struct ConflictModel {
-    static int value(fct::object_handle<ConflictModel, ILeft>) {
+    static int value(fct::typed_facets<ConflictModel, ILeft>) {
         return 1;
     }
 
-    static int value(fct::object_handle<ConflictModel, IRight>) {
+    static int value(fct::typed_facets<ConflictModel, IRight>) {
         return 2;
     }
 };
 
 ConflictModel model;
-auto handle = fct::as_handle<ILeft, IRight>(&model);
+auto handle = fct::as_facets<ILeft, IRight>(&model);
 assert(handle.as<ILeft>()->value() == 1);
 assert(handle.as<IRight>()->value() == 2);
 ```
@@ -195,14 +195,14 @@ struct Calculator {
 };
 
 Calculator implementation;
-auto calculator = fct::as_handle<ICalculator>(&implementation);
+auto calculator = fct::as_facets<ICalculator>(&implementation);
 assert(calculator->calculate() == 3);
 assert(calculator->calculate(5) == 20);
 ```
 
 Resolution is deterministic. Facet considers candidates in this order:
 
-1. A static function whose first parameter is exactly `fct::object_handle<Implementation, Interface>` and whose remaining parameter types exactly match the interface method.
+1. A static function whose first parameter is exactly `fct::typed_facets<Implementation, Interface>` and whose remaining parameter types exactly match the interface method.
 2. A non-static member function whose parameter types exactly match the interface method.
 3. A static function callable with the interface arguments after the interface handle.
 4. A non-static member function callable with the interface arguments.
@@ -211,7 +211,7 @@ Each candidate's result must be convertible to the interface method's result. Co
 
 If Facet finds no suitable candidate for an interface method, instantiating that implementation's function table fails at compile time.
 
-To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adaptor`. The adaptor is called with an `object_handle<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adaptor takes precedence over automatic lookup:
+To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adaptor`. The adaptor is called with an `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adaptor takes precedence over automatic lookup:
 
 ```cpp
 struct [[= fct::spec]] IDerived {
@@ -228,7 +228,7 @@ struct Derived {
 };
 
 Derived implementation;
-auto derived = fct::as_handle<IDerived>(&implementation);
+auto derived = fct::as_facets<IDerived>(&implementation);
 assert(derived->derived() == 34);
 ```
 
@@ -260,8 +260,8 @@ struct Adjustable {
 };
 
 Adjustable object{5};
-fct::interface_handle<IAdjustable> adjustable = fct::as_handle<IAdjustable>(&object);
-fct::interface_handle<IValue> value = adjustable;
+fct::facets<IAdjustable> adjustable = fct::as_facets<IAdjustable>(&object);
+fct::facets<IValue> value = adjustable;
 
 assert(value->value() == 5);
 ```
@@ -270,7 +270,7 @@ This applies to transitive and multiple interface inheritance. An inheritance up
 
 ### 5. Query optional interfaces at runtime
 
-A handle preserves runtime type information for the interfaces it exposes. To make a reflective interface discoverable by a runtime query, give it an interface ID. Use `[[= fct::local_id]]` when every query is within the same translation unit; use `[[= fct::uuid("...")]]` when the interface is shared between translation units or dynamic libraries. Constructing another `interface_handle` from a handle then performs a runtime interface query: the result is non-null when the object supports the requested interface and null otherwise.
+A handle preserves runtime type information for the interfaces it exposes. To make a reflective interface discoverable by a runtime query, give it an interface ID. Use `[[= fct::local_id]]` when every query is within the same translation unit; use `[[= fct::uuid("...")]]` when the interface is shared between translation units or dynamic libraries. Constructing another `facets` from a handle then performs a runtime interface query: the result is non-null when the object supports the requested interface and null otherwise.
 
 ```cpp
 struct [[= fct::spec]]
@@ -294,20 +294,20 @@ struct Model {
 };
 
 Model model;
-fct::interface_handle<IRoot> root = fct::as_handle<IRoot, IExtra>(&model);
+fct::facets<IRoot> root = fct::as_facets<IRoot, IExtra>(&model);
 
-fct::interface_handle<IExtra> extra{root};
-fct::interface_handle<IAbsent> absent{root};
+fct::facets<IExtra> extra{root};
+fct::facets<IAbsent> absent{root};
 
 assert(extra && extra->extra() == 20);
 assert(!absent);
 ```
 
-Use `fct::data_handle` when only the type-erased handle is needed before choosing an interface:
+Use `fct::opaque` when only the type-erased handle is needed before choosing an interface:
 
 ```cpp
-fct::data_handle data = fct::as_handle<IExtra>(&model);
-fct::interface_handle<IExtra> extra{data};
+fct::opaque data = fct::as_facets<IExtra>(&model);
+fct::facets<IExtra> extra{data};
 ```
 
 ### 6. Manage lifetimes with type-erased ownership
@@ -317,11 +317,11 @@ Include `<facet/memory.hpp>` for owning wrappers. The library provides `make_sha
 | Factory or wrapper | Ownership |
 | --- | --- |
 | `make_shared<Impl, I...>(args...)` | Reference-counted ownership |
-| `interface_holder<I...>` | Shared, type-erased ownership |
-| `interface_view<I...>` | Non-owning view of a shared object |
+| `shared_facets<I...>` | Shared, type-erased ownership |
+| `weak_facets<I...>` | Non-owning view of a shared object |
 | `make_unique<Impl, I...>(args...)` | Unique ownership |
-| `interface_owner<I...>` | Unique, type-erased ownership |
-| `data_view`, `data_holder`, `data_owner` | The respective type-erased wrappers with no exposed interface methods |
+| `unique_facets<I...>` | Unique, type-erased ownership |
+| `weak_opaque`, `shared_opaque`, `unique_opaque` | The respective type-erased wrappers with no exposed interface methods |
 
 ```cpp
 #include <facet/memory.hpp>
@@ -337,40 +337,40 @@ struct Counter {
 };
 
 auto shared = fct::make_shared<Counter, ICounter>();
-fct::interface_view<ICounter> view = shared;
-fct::interface_holder<ICounter> retained = view;
+fct::weak_facets<ICounter> view = shared;
+fct::shared_facets<ICounter> retained = view;
 
 assert(retained->count() == 42);
 ```
 
-`interface_holder` is copyable. `interface_owner` is move-only:
+`shared_facets` is copyable. `unique_facets` is move-only:
 
 ```cpp
 auto unique = fct::make_unique<Counter, ICounter>();
-fct::interface_owner<ICounter> owner = std::move(unique);
+fct::unique_facets<ICounter> owner = std::move(unique);
 assert(owner->count() == 42);
 ```
 
 #### Return shared ownership from an implementation
 
-Derive a shared implementation from `fct::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle, calls `fct::recover_shared`, and converts the resulting view to a shared type-erased holder.
+Derive a shared implementation from `fct::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle, calls `fct::retain_shared`, and converts the resulting view to a shared type-erased holder, there is also `fct::retain_weak` for obtaining a weak reference.
 
 ```cpp
 struct [[= fct::spec]] ISelf {
-    fct::interface_holder<ISelf> self() const;
+    fct::shared_facets<ISelf> self() const;
 };
 
 struct SharedObject : fct::enable_shared_from_this<SharedObject> {
-    static fct::interface_holder<ISelf> self(fct::object_handle<SharedObject, ISelf> self) {
-        return fct::recover_shared(self);
+    static fct::shared_facets<ISelf> self(fct::typed_facets<SharedObject, ISelf> self) {
+        return fct::retain_shared(self);
     }
 };
 
 auto object = fct::make_shared<SharedObject, ISelf>();
-fct::interface_holder<ISelf> retained = object->self();
+fct::shared_facets<ISelf> retained = object->self();
 ```
 
-`recover_shared` requires an `object_handle<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_this<Impl>`. It returns an `object_view`, so converting it to `interface_holder` increments the shared control block's reference count. Do not use it for borrowed objects or objects owned by `make_unique`.
+`retain_weak` requires an `typed_facets<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_this<Impl>`. It returns an `weak_typed_facets`, so converting it to `shared_facets` increments the shared control block's reference count. Do not use it for borrowed objects or objects owned by `make_unique`.
 
 ### 7. Cross a dynamic-library boundary
 
@@ -389,9 +389,9 @@ struct [[= fct::spec]]
 The provider creates the handle and exports it through its C ABI:
 
 ```cpp
-extern "C" void make_service(fct::interface_handle<IService>* out) {
+extern "C" void make_service(fct::facets<IService>* out) {
     static Service service;
-    *out = fct::as_handle<IService>(&service);
+    *out = fct::as_facets<IService>(&service);
 }
 ```
 
@@ -429,7 +429,7 @@ Reflection is the preferred path for ordinary C++ interface declarations. When t
 1. Optionally, `interface_id<I>` defines `static constexpr interface_id_t value`. Its presence enables runtime cross-casts to `I`; use a non-empty stable value whenever the interface must be found across translation units or dynamic-library boundaries.
 2. `vtable<I>` defines `type`, the function-table type for `I`. Its layout is application-defined.
 3. `direct_bases<I>` exposes `value`, a `std::array` or span of `direct_base_t` entries. Each `direct_base<Base>(converter)` records a direct base and a converter from `vtable_t<I> const*` to `vtable_t<Base> const*`.
-4. `direct_methods<I>` exposes `value`, a `std::array` or span of `direct_method_t` entries. Each `direct_method(name, invoker)` maps a method name to an invoker callable with `interface_handle<I>` followed by that method's arguments.
+4. `direct_methods<I>` exposes `value`, a `std::array` or span of `direct_method_t` entries. Each `direct_method(name, invoker)` maps a method name to an invoker callable with `facets<I>` followed by that method's arguments.
 5. `vtable_implements<Impl, I>` defines `static constexpr vtable_t<I> const* value`, the table used when `Impl` is adapted as `I`.
 
 The protocol is what powers the reflective path as well: base metadata determines hierarchy conversions, method metadata builds the call facade, interface identifiers enable runtime lookup, and implementation tables select the actual dispatch targets. All table pointers, base converters, and invokers must remain valid for the lifetime of every handle that refers to them. Prefer static-storage tables and keep the method names and invoker signatures consistent with the interface facade.
@@ -451,7 +451,7 @@ struct interface_id<IManualValue<T>> {
 
 `std::meta::display_string_of` distinguishes template specializations, so a runtime query can find `IManualValue<int>` while rejecting `IManualValue<double>` for the same object. Its spelling is compiler-defined; use an explicit, stable ID instead when interfaces cross a dynamic-library, compiler, or independently versioned build boundary. Provide the corresponding partial specializations of `vtable`, `direct_bases`, `direct_methods`, and `vtable_implements`.
 
-An `object_handle` stores its vtable pointers in `fct::tuple`, which is an ABI-stable version of `std::tuple`; use `fct::get<I>(handle.vtables)` or `fct::apply` to access them rather than `std::get` or `std::apply`.
+An `typed_facets` stores its vtable pointers in `fct::tuple`, which is an ABI-stable version of `std::tuple`; use `fct::get<I>(handle.vtables)` or `fct::apply` to access them rather than `std::get` or `std::apply`.
 
 ## Appendix: examples and verification
 

@@ -37,7 +37,7 @@ struct direct_bases<IManualRoot> {
 template<>
 struct direct_methods<IManualRoot> {
     static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("root_value", [](interface_handle<IManualRoot> handle) {
+        direct_method("root_value", [](facets<IManualRoot> handle) {
             return fct::get<0>(handle.vtables)->self->root_value(handle.data);
         }),
     };
@@ -63,7 +63,7 @@ struct direct_bases<IManualReader> {
 template<>
 struct direct_methods<IManualReader> {
     static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("read", [](interface_handle<IManualReader> handle) {
+        direct_method("read", [](facets<IManualReader> handle) {
             return fct::get<0>(handle.vtables)->self->read(handle.data);
         }),
     };
@@ -89,7 +89,7 @@ struct direct_bases<IManualCounter> {
 template<>
 struct direct_methods<IManualCounter> {
     static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("count", [](interface_handle<IManualCounter> handle) {
+        direct_method("count", [](facets<IManualCounter> handle) {
             return fct::get<0>(handle.vtables)->self->count(handle.data);
         }),
     };
@@ -149,14 +149,14 @@ struct Counter {
 
 void test_manual_counter() {
     Counter counter{42};
-    auto handle = fct::as_handle<IManualCounter>(&counter);
+    auto handle = fct::as_facets<IManualCounter>(&counter);
     assert(handle->count() == 42);
-    fct::interface_handle<IManualReader> reader{handle};
+    fct::facets<IManualReader> reader{handle};
     assert(reader->read() == 42);
-    fct::interface_handle<IManualRoot> root{reader};
+    fct::facets<IManualRoot> root{reader};
     assert(root->root_value() == 42);
 
-    fct::interface_handle<IManualCounter> recast{reader};
+    fct::facets<IManualCounter> recast{reader};
     assert(recast);
     assert(recast->count() == 42);
 }
@@ -186,7 +186,7 @@ struct direct_bases<IManualValue<T>> {
 template<typename T>
 struct direct_methods<IManualValue<T>> {
     static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("value", [](interface_handle<IManualValue<T>> handle) {
+        direct_method("value", [](facets<IManualValue<T>> handle) {
             return fct::get<0>(handle.vtables)->value(handle.data);
         }),
     };
@@ -213,14 +213,14 @@ struct ValueModel {
 
 void test_manual_template_interface() {
     ValueModel model{56};
-    auto handle = fct::as_handle<IManualValue<int>>(&model);
-    fct::data_handle data = handle;
+    auto handle = fct::as_facets<IManualValue<int>>(&model);
+    fct::opaque data = handle;
 
-    fct::interface_handle<IManualValue<int>> value{data};
+    fct::facets<IManualValue<int>> value{data};
     assert(value);
     assert(value->value() == 56);
 
-    fct::interface_handle<IManualValue<double>> wrong_value{data};
+    fct::facets<IManualValue<double>> wrong_value{data};
     assert(!wrong_value);
 }
 
@@ -242,7 +242,7 @@ struct vtable<IManualBase> {
 template<>
 struct direct_methods<IManualBase> {
     static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("base", [](interface_handle<IManualBase> handle) {
+        direct_method("base", [](facets<IManualBase> handle) {
             return fct::get<0>(handle.vtables)->base(handle.data);
         }),
     };
@@ -285,7 +285,7 @@ struct Derived {
 
 void test_manual_derived() {
     Derived derived;
-    auto handle = fct::as_handle<IDerived>(&derived);
+    auto handle = fct::as_facets<IDerived>(&derived);
     assert(handle->base() == 12);
     assert(handle->derived() == 34);
 }

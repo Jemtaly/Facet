@@ -10,10 +10,10 @@
 #endif
 
 extern "C" FACET_TEST_IMPORT void facet_test_make_v1(
-    fct::interface_handle<facet_test_evolution::IRevisioned> *out);
+    fct::facets<facet_test_evolution::IRevisioned> *out);
 
 int main() {
-    fct::interface_handle<facet_test_evolution::IRevisioned> old_handle;
+    fct::facets<facet_test_evolution::IRevisioned> old_handle;
     facet_test_make_v1(&old_handle);
     assert(old_handle);
     assert(old_handle->value() == 10);

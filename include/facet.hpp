@@ -15,7 +15,7 @@
 #include <utility>
 #include <vector>
 
-#define FACET_VERSION 0
+#define FACET_TYPE_INFO_VERSION 0
 
 namespace fct {
 namespace detail {
@@ -311,18 +311,18 @@ struct vtable_dycast_customizer<To> {
 // ============================================================================
 // Facade
 //
-// facade_t<Self, Is...> is an aggregate with one slot per method name. Each
+// facade<Self, Is...> is an aggregate with one slot per method name. Each
 // slot combines the invokers for that name and dispatches through its handle.
 // ============================================================================
 
 namespace fct {
 template<class Impl, class... Is>
-struct object_handle;
+struct typed_facets;
 
 template<class... Is>
-using interface_handle = object_handle<void, Is...>;
+using facets = typed_facets<void, Is...>;
 
-using data_handle = interface_handle<>;
+using opaque = facets<>;
 
 namespace detail {
 template<class Self, class I>
@@ -333,10 +333,10 @@ struct combined_facade_def;
 }
 
 template<class Self, class... Is>
-using facade_t = typename detail::facade_def<Self, Is...>::type;
+using facade = typename detail::facade_def<Self, Is...>::type;
 
 template<class Self, class... Is>
-using combined_facade_t = typename detail::combined_facade_def<Self, Is...>::type;
+using combined_facade = typename detail::combined_facade_def<Self, Is...>::type;
 
 namespace detail {
 template<class... Invokers>
@@ -358,11 +358,11 @@ struct slot {
 template<class I, auto Callable>
 struct direct_invoker {
     template<class... Args>
-        requires requires(interface_handle<I> handle, Args &&...args) {
-            Callable(handle, std::forward<Args>(args)...);
+        requires requires(facets<I> self, Args &&...args) {
+            Callable(self, std::forward<Args>(args)...);
         }
-    static decltype(auto) invoke(interface_handle<I> handle, Args &&...args) {
-        return Callable(handle, std::forward<Args>(args)...);
+    static decltype(auto) invoke(facets<I> self, Args &&...args) {
+        return Callable(self, std::forward<Args>(args)...);
     }
 };
 
@@ -463,20 +463,20 @@ constexpr decltype(auto) apply(F &&f, T &&t) {
 // ============================================================================
 
 namespace fct {
-template<class Data, class... Is>
-struct object_handle {
-    using data_type = Data;
+template<class Impl, class... Is>
+struct typed_facets {
+    using data_type = Impl;
     using vtable_tuple = fct::tuple<vtable_t<Is> const *...>;
 
-    Data *data = nullptr;
+    Impl *data = nullptr;
     type_info const *rtti = nullptr;
     vtable_tuple vtables = {};
 
-    constexpr object_handle() noexcept = default;
+    constexpr typed_facets() noexcept = default;
 
-    constexpr object_handle(Data *d, type_info const *r, vtable_tuple t) noexcept : data(d), rtti(r), vtables(t) {}
+    constexpr typed_facets(Impl *d, type_info const *r, vtable_tuple t) noexcept : data(d), rtti(r), vtables(t) {}
 
-    constexpr explicit object_handle(Data *d, type_info const *r, vtable_t<Is> const *...vs) noexcept : data(d), rtti(r), vtables(vs...) {}
+    constexpr explicit typed_facets(Impl *d, type_info const *r, vtable_t<Is> const *...vs) noexcept : data(d), rtti(r), vtables(vs...) {}
 
     // ---- castability ------------------------------------------------------
 
@@ -491,7 +491,7 @@ struct object_handle {
 
     template<class Base, class... Js>
     static constexpr bool can_convert_to =
-        (std::is_same_v<Data, Base> || std::is_same_v<Base, void>) &&
+        (std::is_same_v<Impl, Base> || std::is_same_v<Base, void>) &&
         (can_cast_to<Js> && ...);
 
     template<class... Js>
@@ -529,10 +529,10 @@ struct object_handle {
     // ---- conversions ------------------------------------------------------
 
     template<class Base, class... Js>
-        requires(can_convert_to<Base, Js...> && !std::is_same_v<object_handle<Base, Js...>, object_handle>)
+        requires(can_convert_to<Base, Js...> && !std::is_same_v<typed_facets<Base, Js...>, typed_facets>)
     explicit(!can_implicitly_convert_to<Js...>)
-    operator object_handle<Base, Js...>() const noexcept {
-        return object_handle<Base, Js...>(data, rtti, cast_vtable<Js>()...);
+    operator typed_facets<Base, Js...>() const noexcept {
+        return typed_facets<Base, Js...>(data, rtti, cast_vtable<Js>()...);
     }
 
     explicit operator bool() const noexcept {
@@ -545,16 +545,16 @@ struct object_handle {
     }
 
     auto &operator*() const noexcept {
-        return reinterpret_cast<combined_facade_t<object_handle, Is...> const &>(*this);
+        return reinterpret_cast<combined_facade<typed_facets, Is...> const &>(*this);
     }
 
     auto *operator->() const noexcept {
-        return reinterpret_cast<combined_facade_t<object_handle, Is...> const *>(this);
+        return reinterpret_cast<combined_facade<typed_facets, Is...> const *>(this);
     }
 
     template<class I>
     auto *as() const noexcept {
-        return reinterpret_cast<facade_t<object_handle, I> const *>(this);
+        return reinterpret_cast<facade<typed_facets, I> const *>(this);
     }
 
     auto *get() const noexcept {
@@ -566,30 +566,30 @@ struct object_handle {
 // ============================================================================
 // Implementation lookup and thunks
 //
-// For each interface method, public members of Data and its public bases are
+// For each interface method, public members of Impl and its public bases are
 // searched by identifier. Exact matches are preferred in this order: static
-// functions taking object_handle<Data, I>, then member functions. If neither
+// functions taking typed_facets<Impl, I>, then member functions. If neither
 // has an exact match, the same order is used for invocable compatible matches.
 // ============================================================================
 
 namespace fct {
-template<class Data, class I>
+template<class Impl, class I>
 struct vtable_implements;
 
-template<class Data, class I>
-concept implements = requires { vtable_implements<Data, I>::value; };
+template<class Impl, class I>
+concept implements = requires { vtable_implements<Impl, I>::value; };
 
-template<class Data, class I>
-constexpr vtable_t<I> const *vtable_implements_v = vtable_implements<Data, I>::value;
+template<class Impl, class I>
+constexpr vtable_t<I> const *vtable_implements_v = vtable_implements<Impl, I>::value;
 
-template<class Data, class... Is>
-    requires(implements<Data, Is> && ...)
+template<class Impl, class... Is>
+    requires(implements<Impl, Is> && ...)
 struct static_policy {
     template<class I>
-    static constexpr vtable_t<I> const *vtable_ptr = vtable_implements_v<Data, I>;
+    static constexpr vtable_t<I> const *vtable_ptr = vtable_implements_v<Impl, I>;
 
     static constexpr type_info rtti = {
-        .version = FACET_VERSION,
+        .version = FACET_TYPE_INFO_VERSION,
         .query_vtable_ptr = [](void *, interface_id_t id) -> void const * {
             template for (constexpr std::meta::info i : detail::interface_list_v<Is...>) {
                 using I = typename[:i:];
@@ -606,13 +606,13 @@ struct static_policy {
         },
     };
 
-    static object_handle<Data, Is...> make_handle(Data *data) noexcept {
-        return object_handle<Data, Is...>(data, &rtti, vtable_ptr<Is>...);
+    static typed_facets<Impl, Is...> make_facets(Impl *data) noexcept {
+        return typed_facets<Impl, Is...>(data, &rtti, vtable_ptr<Is>...);
     }
 };
 
 template<class... Is, class Impl>
-auto as_handle(Impl *data) {
-    return static_policy<Impl, Is...>::make_handle(data);
+auto as_facets(Impl *data) {
+    return static_policy<Impl, Is...>::make_facets(data);
 }
 }

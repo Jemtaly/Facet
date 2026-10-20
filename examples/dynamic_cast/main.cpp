@@ -31,20 +31,20 @@ struct Model {
 
 void test_dynamic_cast() {
     Model model;
-    auto initial = fct::as_handle<IRoot, IExtra>(&model);
-    fct::interface_handle<IRoot> root = initial;
+    auto initial = fct::as_facets<IRoot, IExtra>(&model);
+    fct::facets<IRoot> root = initial;
 
     static_assert(!std::is_convertible_v<
-                  fct::interface_handle<IExtra>,
-                  fct::interface_handle<IRoot>>);
-    fct::interface_handle<IExtra> extra{root};
+                  fct::facets<IExtra>,
+                  fct::facets<IRoot>>);
+    fct::facets<IExtra> extra{root};
     assert(extra);
     assert(extra->extra() == 20);
 
     static_assert(!std::is_convertible_v<
-                  fct::interface_handle<IAbsent>,
-                  fct::interface_handle<IRoot>>);
-    fct::interface_handle<IAbsent> absent{root};
+                  fct::facets<IAbsent>,
+                  fct::facets<IRoot>>);
+    fct::facets<IAbsent> absent{root};
     assert(!absent);
 }
 
@@ -62,14 +62,14 @@ struct TemplateModel {
 
 void test_template_dynamic_cast() {
     TemplateModel model;
-    auto handle = fct::as_handle<ITemplate<int>>(&model);
-    fct::data_handle root = handle;
+    auto handle = fct::as_facets<ITemplate<int>>(&model);
+    fct::opaque root = handle;
 
-    fct::interface_handle<ITemplate<int>> template_handle{root};
+    fct::facets<ITemplate<int>> template_handle{root};
     assert(template_handle);
     assert(template_handle->value() == 42);
 
-    fct::interface_handle<ITemplate<double>> wrong_template_handle{root};
+    fct::facets<ITemplate<double>> wrong_template_handle{root};
     assert(!wrong_template_handle);
 }
 

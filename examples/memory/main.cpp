@@ -36,13 +36,13 @@ void test_tracked_lifetime() {
         {
             auto copy = shared;
             assert(copy->count() == 42);
-            fct::interface_view<ICounter> view = copy;
-            fct::interface_holder<ICounter> retained{view};
+            fct::weak_facets<ICounter> view = copy;
+            fct::shared_facets<ICounter> retained{view};
             assert(retained->count() == 42);
         }
         assert(Tracked::alive == 1);
 
-        fct::interface_holder<ICounter> erased = std::move(shared);
+        fct::shared_facets<ICounter> erased = std::move(shared);
         assert(!shared);
         assert(erased->count() == 42);
     }
@@ -55,7 +55,7 @@ void test_tracked_lifetime() {
         static_assert(std::is_move_constructible_v<decltype(unique)>);
         auto moved = std::move(unique);
         assert(!unique);
-        fct::interface_owner<ICounter> erased = std::move(moved);
+        fct::unique_facets<ICounter> erased = std::move(moved);
         assert(!moved);
         assert(erased->count() == 42);
     }
@@ -64,7 +64,7 @@ void test_tracked_lifetime() {
 
     {
         Tracked stack_object;
-        auto borrowed = fct::as_handle<ICounter>(&stack_object);
+        auto borrowed = fct::as_facets<ICounter>(&stack_object);
         assert(borrowed->count() == 42);
     }
     assert(Tracked::alive == 0);
@@ -72,19 +72,41 @@ void test_tracked_lifetime() {
 }
 
 struct[[= fct::spec]] IRecoverable {
-    fct::interface_holder<IRecoverable> retain() const;
+    fct::shared_facets<IRecoverable> retain() const;
 };
 
 struct Recoverable : fct::enable_shared_from_this<Recoverable> {
-    static fct::interface_holder<IRecoverable> retain(fct::object_handle<Recoverable, IRecoverable> self) {
-        return fct::recover_shared(self);
+    static inline int alive = 0;
+    static inline int destroyed = 0;
+
+    Recoverable() {
+        ++alive;
+    }
+
+    ~Recoverable() {
+        --alive;
+        ++destroyed;
+    }
+
+    static fct::shared_facets<IRecoverable> retain(fct::typed_facets<Recoverable, IRecoverable> self) {
+        return fct::retain_shared(self);
     }
 };
 
 void test_recoverable() {
-    auto object = fct::make_shared<Recoverable, IRecoverable>();
-    fct::interface_holder<IRecoverable> retained = object->retain();
-    assert(retained);
+    Recoverable::alive = 0;
+    Recoverable::destroyed = 0;
+
+    {
+        auto object = fct::make_shared<Recoverable, IRecoverable>();
+        {
+            fct::shared_facets<IRecoverable> retained = object->retain();
+            assert(retained);
+        }
+        assert(Recoverable::alive == 1);
+    }
+    assert(Recoverable::alive == 0);
+    assert(Recoverable::destroyed == 1);
 }
 
 int main() {

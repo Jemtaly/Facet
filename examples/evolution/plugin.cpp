@@ -18,6 +18,6 @@ VersionOneService service;
 }
 
 extern "C" FACET_TEST_EXPORT void facet_test_make_v1(
-    fct::interface_handle<facet_test_evolution::IRevisioned> *out) {
-    *out = fct::as_handle<facet_test_evolution::IRevisioned>(&service);
+    fct::facets<facet_test_evolution::IRevisioned> *out) {
+    *out = fct::as_facets<facet_test_evolution::IRevisioned>(&service);
 }

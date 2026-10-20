@@ -21,7 +21,7 @@ PluginService service;
 }
 
 extern "C" FACET_TEST_EXPORT void facet_test_make_root(
-    fct::interface_handle<facet_test_abi::IRoot> *out) {
-    auto handle = fct::as_handle<facet_test_abi::IRoot, facet_test_abi::IExtra>(&service);
-    *out = fct::interface_handle<facet_test_abi::IRoot>(handle);
+    fct::facets<facet_test_abi::IRoot> *out) {
+    auto handle = fct::as_facets<facet_test_abi::IRoot, facet_test_abi::IExtra>(&service);
+    *out = fct::facets<facet_test_abi::IRoot>(handle);
 }

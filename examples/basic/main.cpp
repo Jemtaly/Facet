@@ -48,8 +48,8 @@ struct NamedModel {
 
 void test_named_interface() {
     NamedModel model{"example"};
-    auto handle = fct::as_handle<INamed>(&model);
-    fct::interface_handle<INamed> named = handle;
+    auto handle = fct::as_facets<INamed>(&model);
+    fct::facets<INamed> named = handle;
     assert(named);
     assert(named->name() == "example");
     handle.get()->name_ = "updated";
@@ -81,8 +81,8 @@ struct Cell {
 
 void test_template_interface() {
     Cell<std::string> text{"initial"};
-    fct::interface_handle<ICell<std::string>> cell = fct::as_handle<ICell<std::string>>(&text);
-    fct::interface_handle<IView<std::string>> view = cell;
+    fct::facets<ICell<std::string>> cell = fct::as_facets<ICell<std::string>>(&text);
+    fct::facets<IView<std::string>> view = cell;
     assert(view->get() == "initial");
     cell->set("updated");
     assert(view->get() == "updated");
@@ -126,19 +126,19 @@ struct Model {
 
 void test_upcast() {
     Model model;
-    fct::interface_handle<IBottom> bottom = fct::as_handle<IBottom>(&model);
+    fct::facets<IBottom> bottom = fct::as_facets<IBottom>(&model);
     assert(bottom);
     assert(bottom->top() == 1);
 
-    fct::interface_handle<ILeft> left = bottom;
+    fct::facets<ILeft> left = bottom;
     assert(left);
     assert(left->top() == 1);
 
-    fct::interface_handle<IRight> right = bottom;
+    fct::facets<IRight> right = bottom;
     assert(right);
     assert(right->top() == 1);
 
-    fct::interface_handle<ITop> top = bottom;
+    fct::facets<ITop> top = bottom;
     assert(top);
     assert(top->top() == 1);
 }

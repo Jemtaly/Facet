@@ -13,7 +13,7 @@
 // ============================================================================
 // Ownership wrappers
 //
-// object_view is non-owning, object_holder shares ownership, and object_owner
+// weak_typed_facets is non-owning, shared_typed_facets shares ownership, and unique_typed_facets
 // uniquely owns its implementation. The interface aliases expose these same
 // wrappers without an implementation type.
 // ============================================================================
@@ -45,17 +45,17 @@ inline void release(shared_controller *control) noexcept {
 template<class Impl>
 struct shared_controller_for_def {
     struct type : shared_controller {
-        Impl data;
+        Impl impl;
 
         template<class... Args>
-        explicit type(Args &&...args) noexcept : shared_controller{.destroy = destroy}, data(std::forward<Args>(args)...) {}
+        explicit type(Args &&...args) noexcept : shared_controller{.destroy = destroy}, impl(std::forward<Args>(args)...) {}
 
         static void destroy(shared_controller *control) noexcept {
             delete static_cast<type *>(control);
         }
 
-        Impl *get_data() noexcept {
-            return &data;
+        Impl *get_impl() noexcept {
+            return &impl;
         }
     };
 };
@@ -64,35 +64,35 @@ template<class Impl>
 using shared_controller_for = typename shared_controller_for_def<Impl>::type;
 }
 
-template<class Data, class... Is>
-struct object_view;
+template<class Impl, class... Is>
+struct weak_typed_facets;
 
-template<class Data, class... Is>
-struct object_holder;
+template<class Impl, class... Is>
+struct shared_typed_facets;
 
-template<class Data, class... Is>
-struct object_view {
-    using handle_type = object_handle<Data, Is...>;
+template<class Impl, class... Is>
+struct weak_typed_facets {
+    using handle_type = typed_facets<Impl, Is...>;
 
     handle_type handle_;
     detail::shared_controller *controller_ = nullptr;
 
-    constexpr object_view() noexcept = default;
+    constexpr weak_typed_facets() noexcept = default;
 
-    object_view(handle_type handle, detail::shared_controller *controller) noexcept : handle_(handle), controller_(controller) {}
+    weak_typed_facets(handle_type handle, detail::shared_controller *controller) noexcept : handle_(handle), controller_(controller) {}
 
     template<class Base, class... Js>
-        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<object_view<Base, Js...>, object_view>)
+        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<weak_typed_facets<Base, Js...>, weak_typed_facets>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_view<Base, Js...>() const & noexcept {
-        return object_view<Base, Js...>(object_handle<Base, Js...>(handle_), controller_);
+    operator weak_typed_facets<Base, Js...>() const & noexcept {
+        return weak_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), controller_);
     }
 
     template<class Base, class... Js>
         requires(handle_type::template can_convert_to<Base, Js...>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_holder<Base, Js...>() const & noexcept {
-        return object_holder<Base, Js...>(object_handle<Base, Js...>(handle_), detail::add_ref(controller_));
+    operator shared_typed_facets<Base, Js...>() const & noexcept {
+        return shared_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), detail::add_ref(controller_));
     }
 
     explicit operator bool() const noexcept {
@@ -121,52 +121,52 @@ struct object_view {
     }
 };
 
-template<class Data, class... Is>
-struct object_holder {
-    using handle_type = object_handle<Data, Is...>;
+template<class Impl, class... Is>
+struct shared_typed_facets {
+    using handle_type = typed_facets<Impl, Is...>;
 
     handle_type handle_;
     detail::shared_controller *controller_ = nullptr;
 
-    constexpr object_holder() noexcept = default;
+    constexpr shared_typed_facets() noexcept = default;
 
-    object_holder(handle_type handle, detail::shared_controller *controller) noexcept : handle_(handle), controller_(controller) {}
+    shared_typed_facets(handle_type handle, detail::shared_controller *controller) noexcept : handle_(handle), controller_(controller) {}
 
-    object_holder(object_holder const &other) noexcept : handle_(other.handle_), controller_(detail::add_ref(other.controller_)) {}
+    shared_typed_facets(shared_typed_facets const &other) noexcept : handle_(other.handle_), controller_(detail::add_ref(other.controller_)) {}
 
-    object_holder(object_holder &&other) noexcept : handle_(other.handle_), controller_(std::exchange(other.controller_, nullptr)) {}
+    shared_typed_facets(shared_typed_facets &&other) noexcept : handle_(other.handle_), controller_(std::exchange(other.controller_, nullptr)) {}
 
     template<class Base, class... Js>
-        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<object_holder<Base, Js...>, object_holder>)
+        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<shared_typed_facets<Base, Js...>, shared_typed_facets>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_holder<Base, Js...>() const & noexcept {
-        return object_holder<Base, Js...>(object_handle<Base, Js...>(handle_), detail::add_ref(controller_));
+    operator shared_typed_facets<Base, Js...>() const & noexcept {
+        return shared_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), detail::add_ref(controller_));
     }
 
     template<class Base, class... Js>
-        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<object_holder<Base, Js...>, object_holder>)
+        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<shared_typed_facets<Base, Js...>, shared_typed_facets>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_holder<Base, Js...>() && noexcept {
-        return object_holder<Base, Js...>(object_handle<Base, Js...>(handle_), std::exchange(controller_, nullptr));
+    operator shared_typed_facets<Base, Js...>() && noexcept {
+        return shared_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), std::exchange(controller_, nullptr));
     }
 
     template<class Base, class... Js>
         requires(handle_type::template can_convert_to<Base, Js...>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_view<Base, Js...>() const & noexcept {
-        return object_view<Base, Js...>(object_handle<Base, Js...>(handle_), controller_);
+    operator weak_typed_facets<Base, Js...>() const & noexcept {
+        return weak_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), controller_);
     }
 
-    ~object_holder() {
+    ~shared_typed_facets() {
         detail::release(controller_);
     }
 
-    void swap(object_holder &other) noexcept {
+    void swap(shared_typed_facets &other) noexcept {
         std::swap(handle_, other.handle_);
         std::swap(controller_, other.controller_);
     }
 
-    object_holder &operator=(object_holder other) noexcept {
+    shared_typed_facets &operator=(shared_typed_facets other) noexcept {
         swap(other);
         return *this;
     }
@@ -198,19 +198,19 @@ struct object_holder {
 };
 
 template<class... Is>
-using interface_view = object_view<void, Is...>;
+using weak_facets = weak_typed_facets<void, Is...>;
 
-using data_view = interface_view<>;
+using weak_opaque = weak_facets<>;
 
 template<class... Is>
-using interface_holder = object_holder<void, Is...>;
+using shared_facets = shared_typed_facets<void, Is...>;
 
-using data_holder = interface_holder<>;
+using shared_opaque = shared_facets<>;
 
 template<class Impl, class... Is, class... Args>
 auto make_shared(Args &&...args) {
     auto *controller = new detail::shared_controller_for<Impl>(std::forward<Args>(args)...);
-    return object_holder<Impl, Is...>(static_policy<Impl, Is...>::make_handle(controller->get_data()), controller);
+    return shared_typed_facets<Impl, Is...>(as_facets<Is...>(controller->get_impl()), controller);
 }
 
 template<class Self>
@@ -229,19 +229,19 @@ template<class Impl>
     requires(std::derived_from<Impl, enable_shared_from_this<Impl>>)
 struct shared_controller_for_def<Impl> {
     struct type : shared_controller {
-        Impl data;
+        Impl impl;
 
         template<class... Args>
-        explicit type(Args &&...args) noexcept : shared_controller{.destroy = destroy}, data(std::forward<Args>(args)...) {
-            data.controller_ = this;
+        explicit type(Args &&...args) noexcept : shared_controller{.destroy = destroy}, impl(std::forward<Args>(args)...) {
+            impl.controller_ = this;
         }
 
         static void destroy(shared_controller *control) noexcept {
             delete static_cast<type *>(control);
         }
 
-        Impl *get_data() noexcept {
-            return &data;
+        Impl *get_impl() noexcept {
+            return &impl;
         }
     };
 };
@@ -249,8 +249,13 @@ struct shared_controller_for_def<Impl> {
 
 template<class Impl, class... Is>
     requires(std::derived_from<Impl, enable_shared_from_this<Impl>>)
-auto recover_shared(object_handle<Impl, Is...> handle) {
-    return object_view<Impl, Is...>(handle, handle.get()->get_controller());
+auto retain_weak(typed_facets<Impl, Is...> handle) {
+    return weak_typed_facets<Impl, Is...>(handle, handle.get()->get_controller());
+}
+
+template<class Impl, class... Is>
+auto retain_shared(typed_facets<Impl, Is...> handle) {
+    return shared_typed_facets<Impl, Is...>(handle, detail::add_ref(handle.get()->get_controller()));
 }
 }
 
@@ -269,17 +274,17 @@ inline void release(unique_controller *control) noexcept {
 template<class Impl>
 struct unique_controller_for_def {
     struct type : unique_controller {
-        Impl data;
+        Impl impl;
 
         template<class... Args>
-        explicit type(Args &&...args) noexcept : unique_controller{.destroy = destroy}, data(std::forward<Args>(args)...) {}
+        explicit type(Args &&...args) noexcept : unique_controller{.destroy = destroy}, impl(std::forward<Args>(args)...) {}
 
         static void destroy(unique_controller *control) noexcept {
             delete static_cast<type *>(control);
         }
 
-        Impl *get_data() noexcept {
-            return &data;
+        Impl *get_impl() noexcept {
+            return &impl;
         }
     };
 };
@@ -288,38 +293,38 @@ template<class Impl>
 using unique_controller_for = typename unique_controller_for_def<Impl>::type;
 }
 
-template<class Data, class... Is>
-struct object_owner {
-    using handle_type = object_handle<Data, Is...>;
+template<class Impl, class... Is>
+struct unique_typed_facets {
+    using handle_type = typed_facets<Impl, Is...>;
 
     handle_type handle_;
     detail::unique_controller *controller_ = nullptr;
 
-    constexpr object_owner() noexcept = default;
+    constexpr unique_typed_facets() noexcept = default;
 
-    object_owner(handle_type handle, detail::unique_controller *controller) noexcept : handle_(handle), controller_(controller) {}
+    unique_typed_facets(handle_type handle, detail::unique_controller *controller) noexcept : handle_(handle), controller_(controller) {}
 
-    object_owner(object_owner const &) = delete;
+    unique_typed_facets(unique_typed_facets const &) = delete;
 
-    object_owner(object_owner &&other) noexcept : handle_(other.handle_), controller_(std::exchange(other.controller_, nullptr)) {}
+    unique_typed_facets(unique_typed_facets &&other) noexcept : handle_(other.handle_), controller_(std::exchange(other.controller_, nullptr)) {}
 
     template<class Base, class... Js>
-        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<object_owner<Base, Js...>, object_owner>)
+        requires(handle_type::template can_convert_to<Base, Js...> && !std::is_same_v<unique_typed_facets<Base, Js...>, unique_typed_facets>)
     explicit(!handle_type::template can_implicitly_convert_to<Js...>)
-    operator object_owner<Base, Js...>() && noexcept {
-        return object_owner<Base, Js...>(object_handle<Base, Js...>(handle_), std::exchange(controller_, nullptr));
+    operator unique_typed_facets<Base, Js...>() && noexcept {
+        return unique_typed_facets<Base, Js...>(typed_facets<Base, Js...>(handle_), std::exchange(controller_, nullptr));
     }
 
-    ~object_owner() {
+    ~unique_typed_facets() {
         detail::release(controller_);
     }
 
-    void swap(object_owner &other) noexcept {
+    void swap(unique_typed_facets &other) noexcept {
         std::swap(handle_, other.handle_);
         std::swap(controller_, other.controller_);
     }
 
-    object_owner &operator=(object_owner other) noexcept {
+    unique_typed_facets &operator=(unique_typed_facets other) noexcept {
         swap(other);
         return *this;
     }
@@ -351,13 +356,13 @@ struct object_owner {
 };
 
 template<class... Is>
-using interface_owner = object_owner<void, Is...>;
+using unique_facets = unique_typed_facets<void, Is...>;
 
-using data_owner = interface_owner<>;
+using unique_opaque = unique_facets<>;
 
 template<class Impl, class... Is, class... Args>
 auto make_unique(Args &&...args) {
     auto *controller = new detail::unique_controller_for<Impl>(std::forward<Args>(args)...);
-    return object_owner<Impl, Is...>(static_policy<Impl, Is...>::make_handle(controller->get_data()), controller);
+    return unique_typed_facets<Impl, Is...>(as_facets<Is...>(controller->get_impl()), controller);
 }
 }
