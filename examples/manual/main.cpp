@@ -209,8 +209,6 @@ struct ValueModel {
     int value;
 };
 
-#include<cstdio>
-
 void test_manual_template_interface() {
     ValueModel model{56};
     auto handle = fct::as_facets<IManualValue<int>>(&model);
@@ -256,7 +254,7 @@ struct direct_bases<IManualBase> {
 template<typename Impl>
 struct vtable_implements<Impl, IManualBase> {
     static int base(void *data) {
-        return static_cast<Impl *>(data)->impl_base();
+        return static_cast<Impl *>(data)->base();
     }
 
     static constexpr vtable_t<IManualBase> table{
@@ -268,17 +266,15 @@ struct vtable_implements<Impl, IManualBase> {
 
 struct[[= fct::spec]]
       [[= fct::uuid("facet.tests.manual.derived")]] IDerived : IManualBase {
-    [[= fct::adaptor([](auto impl) {
-        return impl.get()->impl_derived();
-    })]] int derived();
+    int derived();
 };
 
 struct Derived {
-    int impl_base() {
+    int base() {
         return 12;
     }
 
-    int impl_derived() {
+    int derived() {
         return 34;
     }
 };

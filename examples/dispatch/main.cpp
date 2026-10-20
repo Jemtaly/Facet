@@ -130,6 +130,39 @@ void test_implementation_priority() {
     assert(fct::as_facets<ISelect>(&model_d)->select(1) == 71);
 }
 
+struct[[= fct::spec]] ICustom {
+    [[= fct::adaptor([](auto impl) {
+        if constexpr (requires { impl.get()->custom(); }) {
+            return impl.get()->custom();
+        } else {
+            return impl.get()->fallback();
+        }
+    })]] int custom() const;
+};
+
+struct CustomModel {
+    int custom() const {
+        return 123;
+    }
+};
+
+struct FallbackModel {
+    int fallback() const {
+        return 456;
+    }
+};
+
+void test_custom_adaptor() {
+    CustomModel custom_model;
+    FallbackModel fallback_model;
+
+    auto custom_handle = fct::as_facets<ICustom>(&custom_model);
+    assert(custom_handle->custom() == 123);
+
+    auto fallback_handle = fct::as_facets<ICustom>(&fallback_model);
+    assert(fallback_handle->custom() == 456);
+}
+
 int main() {
     test_overloaded_implementation_methods();
     test_same_name_automatic_dispatch();
