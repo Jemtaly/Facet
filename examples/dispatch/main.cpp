@@ -1,10 +1,10 @@
 #include <cassert>
 #include <string>
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
-struct[[= proxy::spec]] ICalculator {
+struct[[= fct::spec]] ICalculator {
     int calculate() const;
     int calculate(int value) const;
 };
@@ -21,16 +21,16 @@ struct Calculator {
 
 void test_overloaded_implementation_methods() {
     Calculator calculator;
-    auto handle = proxy::as_handle<ICalculator>(&calculator);
+    auto handle = fct::as_handle<ICalculator>(&calculator);
     assert(handle->calculate() == 3);
     assert(handle->calculate(5) == 20);
 }
 
-struct[[= proxy::spec]] ITextChannel {
+struct[[= fct::spec]] ITextChannel {
     std::string send() const;
 };
 
-struct[[= proxy::spec]] IIndexChannel {
+struct[[= fct::spec]] IIndexChannel {
     int send(int index) const;
 };
 
@@ -46,37 +46,37 @@ struct Channel {
 
 void test_same_name_automatic_dispatch() {
     Channel channel;
-    auto handle = proxy::as_handle<ITextChannel, IIndexChannel>(&channel);
+    auto handle = fct::as_handle<ITextChannel, IIndexChannel>(&channel);
     assert(handle->send() == "text");
     assert(handle->send(7) == 21);
 }
 
-struct[[= proxy::spec]] ILeft {
+struct[[= fct::spec]] ILeft {
     int value() const;
 };
 
-struct[[= proxy::spec]] IRight {
+struct[[= fct::spec]] IRight {
     int value() const;
 };
 
 struct ConflictModel {
-    static int value(proxy::object_handle<ConflictModel, ILeft>) {
+    static int value(fct::object_handle<ConflictModel, ILeft>) {
         return 1;
     }
 
-    static int value(proxy::object_handle<ConflictModel, IRight>) {
+    static int value(fct::object_handle<ConflictModel, IRight>) {
         return 2;
     }
 };
 
 void test_manual_dispatch_for_name_conflicts() {
     ConflictModel model;
-    auto handle = proxy::as_handle<ILeft, IRight>(&model);
+    auto handle = fct::as_handle<ILeft, IRight>(&model);
     assert(handle.as<ILeft>()->value() == 1);
     assert(handle.as<IRight>()->value() == 2);
 }
 
-struct[[= proxy::spec]] ISelect {
+struct[[= fct::spec]] ISelect {
     int select(int value) const;
 };
 
@@ -85,7 +85,7 @@ struct ExactStaticWins {
         return value + 10;
     }
 
-    static int select(proxy::object_handle<ExactStaticWins, ISelect>, int value) {
+    static int select(fct::object_handle<ExactStaticWins, ISelect>, int value) {
         return value + 20;
     }
 };
@@ -95,7 +95,7 @@ struct ExactMemberWins {
         return value + 30;
     }
 
-    static int select(proxy::object_handle<ExactMemberWins, ISelect>, double value) {
+    static int select(fct::object_handle<ExactMemberWins, ISelect>, double value) {
         return static_cast<int>(value) + 40;
     }
 };
@@ -105,7 +105,7 @@ struct CompatibleStaticWins {
         return static_cast<int>(value) + 50;
     }
 
-    static int select(proxy::object_handle<CompatibleStaticWins, ISelect>, double value) {
+    static int select(fct::object_handle<CompatibleStaticWins, ISelect>, double value) {
         return value + 60;
     }
 };
@@ -118,16 +118,16 @@ struct CompatibleMemberWins {
 
 void test_implementation_priority() {
     ExactStaticWins model_a;
-    assert(proxy::as_handle<ISelect>(&model_a)->select(1) == 21);
+    assert(fct::as_handle<ISelect>(&model_a)->select(1) == 21);
 
     ExactMemberWins model_b;
-    assert(proxy::as_handle<ISelect>(&model_b)->select(1) == 31);
+    assert(fct::as_handle<ISelect>(&model_b)->select(1) == 31);
 
     CompatibleStaticWins model_c;
-    assert(proxy::as_handle<ISelect>(&model_c)->select(1) == 61);
+    assert(fct::as_handle<ISelect>(&model_c)->select(1) == 61);
 
     CompatibleMemberWins model_d;
-    assert(proxy::as_handle<ISelect>(&model_d)->select(1) == 71);
+    assert(fct::as_handle<ISelect>(&model_d)->select(1) == 71);
 }
 
 int main() {

@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 TESTS_DIR="$ROOT_DIR/examples"
 
-BUILD_DIR=$(mktemp -d -t proxy-examples-XXXXXX)
+BUILD_DIR=$(mktemp -d -t facet-examples-XXXXXX)
 OLD_LD_LIBRARY_PATH=$LD_LIBRARY_PATH
 
 INCLUDE_ARGS=(

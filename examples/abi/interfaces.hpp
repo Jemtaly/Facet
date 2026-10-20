@@ -1,21 +1,21 @@
 #pragma once
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
-namespace proxy_test_abi {
-struct[[= proxy::spec]]
-      [[= proxy::uuid("proxy.tests.abi.root")]] IRoot {
+namespace facet_test_abi {
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.abi.root")]] IRoot {
     int root_value() const;
 };
 
-struct[[= proxy::spec]]
-      [[= proxy::uuid("proxy.tests.abi.extra")]] IExtra {
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.abi.extra")]] IExtra {
     int extra_value() const;
 };
 
-struct[[= proxy::spec]]
-      [[= proxy::uuid("proxy.tests.abi.absent")]] IAbsent {
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.abi.absent")]] IAbsent {
     int absent_value() const;
 };
 }

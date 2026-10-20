@@ -1,21 +1,21 @@
 #include <cassert>
 #include <type_traits>
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
-struct[[= proxy::spec]]
-      [[= proxy::local_id]] IRoot {
+struct[[= fct::spec]]
+      [[= fct::local_id]] IRoot {
     int root() const;
 };
 
-struct[[= proxy::spec]]
-      [[= proxy::local_id]] IExtra {
+struct[[= fct::spec]]
+      [[= fct::local_id]] IExtra {
     int extra() const;
 };
 
-struct[[= proxy::spec]]
-      [[= proxy::local_id]] IAbsent {
+struct[[= fct::spec]]
+      [[= fct::local_id]] IAbsent {
     int absent() const;
 };
 
@@ -31,26 +31,26 @@ struct Model {
 
 void test_dynamic_cast() {
     Model model;
-    auto initial = proxy::as_handle<IRoot, IExtra>(&model);
-    proxy::interface_handle<IRoot> root = initial;
+    auto initial = fct::as_handle<IRoot, IExtra>(&model);
+    fct::interface_handle<IRoot> root = initial;
 
     static_assert(!std::is_convertible_v<
-                  proxy::interface_handle<IExtra>,
-                  proxy::interface_handle<IRoot>>);
-    proxy::interface_handle<IExtra> extra{root};
+                  fct::interface_handle<IExtra>,
+                  fct::interface_handle<IRoot>>);
+    fct::interface_handle<IExtra> extra{root};
     assert(extra);
     assert(extra->extra() == 20);
 
     static_assert(!std::is_convertible_v<
-                  proxy::interface_handle<IAbsent>,
-                  proxy::interface_handle<IRoot>>);
-    proxy::interface_handle<IAbsent> absent{root};
+                  fct::interface_handle<IAbsent>,
+                  fct::interface_handle<IRoot>>);
+    fct::interface_handle<IAbsent> absent{root};
     assert(!absent);
 }
 
 template<typename T>
-struct[[= proxy::spec]]
-      [[= proxy::local_id]] ITemplate {
+struct[[= fct::spec]]
+      [[= fct::local_id]] ITemplate {
     T value() const;
 };
 
@@ -62,14 +62,14 @@ struct TemplateModel {
 
 void test_template_dynamic_cast() {
     TemplateModel model;
-    auto handle = proxy::as_handle<ITemplate<int>>(&model);
-    proxy::data_handle root = handle;
+    auto handle = fct::as_handle<ITemplate<int>>(&model);
+    fct::data_handle root = handle;
 
-    proxy::interface_handle<ITemplate<int>> template_handle{root};
+    fct::interface_handle<ITemplate<int>> template_handle{root};
     assert(template_handle);
     assert(template_handle->value() == 42);
 
-    proxy::interface_handle<ITemplate<double>> wrong_template_handle{root};
+    fct::interface_handle<ITemplate<double>> wrong_template_handle{root};
     assert(!wrong_template_handle);
 }
 

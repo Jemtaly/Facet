@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <utility>
 
-#include <proxy.hpp>
+#include <facet.hpp>
 
 // ============================================================================
 // Ownership wrappers
@@ -18,7 +18,7 @@
 // wrappers without an implementation type.
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 namespace detail {
 using ref_count_t = std::uint32_t;
 
@@ -254,7 +254,7 @@ auto recover_shared(object_handle<Impl, Is...> handle) {
 }
 }
 
-namespace proxy {
+namespace fct {
 namespace detail {
 struct unique_controller {
     void (*destroy)(unique_controller *) noexcept;

@@ -15,9 +15,9 @@
 #include <utility>
 #include <vector>
 
-#define PROXY_VERSION 0
+#define FACET_VERSION 0
 
-namespace proxy {
+namespace fct {
 namespace detail {
 // Intentionally non-constexpr and undefined: reaching a call to it during
 // constant evaluation produces a compile-time error that shows `msg`.
@@ -29,7 +29,7 @@ void compile_time_error(char const *msg);
 // Reflection utilities
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 namespace detail {
 namespace meta = std::meta;
 
@@ -60,7 +60,7 @@ constexpr inline std::span<meta::info const> all_data_members_v = std::define_st
 // one base slot per direct_bases entry; each base converter extracts that slot.
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 struct static_string {
     char const *data;
     std::size_t size;
@@ -160,7 +160,7 @@ constexpr inline std::span<meta::info const> combined_interface_closure_v = [] {
 // Interface id
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 using interface_id_t = char const *;
 
 template<class I>
@@ -225,7 +225,7 @@ struct interface_id<I> {
 // Vtable casts
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 using type_info_version_t = std::uint64_t;
 using query_vtable_ptr_fn = void const *(*)(void *, interface_id_t);
 
@@ -315,7 +315,7 @@ struct vtable_dycast_customizer<To> {
 // slot combines the invokers for that name and dispatches through its handle.
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 template<class Impl, class... Is>
 struct object_handle;
 
@@ -430,7 +430,7 @@ struct combined_facade_def {
 // Tuple
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 namespace detail {
 template<class... Ts>
 struct tuple_def {
@@ -462,11 +462,11 @@ constexpr decltype(auto) apply(F &&f, T &&t) {
 // Bare handle
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 template<class Data, class... Is>
 struct object_handle {
     using data_type = Data;
-    using vtable_tuple = proxy::tuple<vtable_t<Is> const *...>;
+    using vtable_tuple = fct::tuple<vtable_t<Is> const *...>;
 
     Data *data = nullptr;
     type_info const *rtti = nullptr;
@@ -505,7 +505,7 @@ struct object_handle {
         template for (constexpr std::size_t K : std::views::iota(0uz, sizeof...(Is))) {
             using I = Is...[K];
             if constexpr (upcastable_from<To, I>) {
-                return vtable_upcast<To, I>(proxy::get<K>(vtables));
+                return vtable_upcast<To, I>(fct::get<K>(vtables));
             }
         }
     }
@@ -537,7 +537,7 @@ struct object_handle {
 
     explicit operator bool() const noexcept {
         return data != nullptr &&
-               proxy::apply(
+               fct::apply(
                    [](vtable_t<Is> const *...vs) {
                        return ((vs != nullptr) && ...);
                    },
@@ -572,7 +572,7 @@ struct object_handle {
 // has an exact match, the same order is used for invocable compatible matches.
 // ============================================================================
 
-namespace proxy {
+namespace fct {
 template<class Data, class I>
 struct vtable_implements;
 
@@ -589,7 +589,7 @@ struct static_policy {
     static constexpr vtable_t<I> const *vtable_ptr = vtable_implements_v<Data, I>;
 
     static constexpr type_info rtti = {
-        .version = PROXY_VERSION,
+        .version = FACET_VERSION,
         .query_vtable_ptr = [](void *, interface_id_t id) -> void const * {
             template for (constexpr std::meta::info i : detail::interface_list_v<Is...>) {
                 using I = typename[:i:];

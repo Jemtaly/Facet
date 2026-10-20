@@ -1,13 +1,13 @@
 #include <array>
 #include <cassert>
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
 // Interface tags
-struct[[= proxy::uuid("proxy.tests.manual.root")]] IManualRoot;
-struct[[= proxy::uuid("proxy.tests.manual.reader")]] IManualReader;
-struct[[= proxy::uuid("proxy.tests.manual.counter")]] IManualCounter;
+struct[[= fct::uuid("facet.tests.manual.root")]] IManualRoot;
+struct[[= fct::uuid("facet.tests.manual.reader")]] IManualReader;
+struct[[= fct::uuid("facet.tests.manual.counter")]] IManualCounter;
 
 struct RootDispatch {
     int (*root_value)(void *);
@@ -21,7 +21,7 @@ struct CounterDispatch {
     int (*count)(void *);
 };
 
-namespace proxy {
+namespace fct {
 template<>
 struct vtable<IManualRoot> {
     struct type {
@@ -38,7 +38,7 @@ template<>
 struct direct_methods<IManualRoot> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("root_value", [](interface_handle<IManualRoot> handle) {
-            return proxy::get<0>(handle.vtables)->self->root_value(handle.data);
+            return fct::get<0>(handle.vtables)->self->root_value(handle.data);
         }),
     };
 };
@@ -64,7 +64,7 @@ template<>
 struct direct_methods<IManualReader> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("read", [](interface_handle<IManualReader> handle) {
-            return proxy::get<0>(handle.vtables)->self->read(handle.data);
+            return fct::get<0>(handle.vtables)->self->read(handle.data);
         }),
     };
 };
@@ -90,7 +90,7 @@ template<>
 struct direct_methods<IManualCounter> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("count", [](interface_handle<IManualCounter> handle) {
-            return proxy::get<0>(handle.vtables)->self->count(handle.data);
+            return fct::get<0>(handle.vtables)->self->count(handle.data);
         }),
     };
 };
@@ -149,14 +149,14 @@ struct Counter {
 
 void test_manual_counter() {
     Counter counter{42};
-    auto handle = proxy::as_handle<IManualCounter>(&counter);
+    auto handle = fct::as_handle<IManualCounter>(&counter);
     assert(handle->count() == 42);
-    proxy::interface_handle<IManualReader> reader{handle};
+    fct::interface_handle<IManualReader> reader{handle};
     assert(reader->read() == 42);
-    proxy::interface_handle<IManualRoot> root{reader};
+    fct::interface_handle<IManualRoot> root{reader};
     assert(root->root_value() == 42);
 
-    proxy::interface_handle<IManualCounter> recast{reader};
+    fct::interface_handle<IManualCounter> recast{reader};
     assert(recast);
     assert(recast->count() == 42);
 }
@@ -164,7 +164,7 @@ void test_manual_counter() {
 template<typename T>
 struct IManualValue;
 
-namespace proxy {
+namespace fct {
 template<typename T>
 struct interface_id<IManualValue<T>> {
     static constexpr interface_id_t value =
@@ -187,7 +187,7 @@ template<typename T>
 struct direct_methods<IManualValue<T>> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("value", [](interface_handle<IManualValue<T>> handle) {
-            return proxy::get<0>(handle.vtables)->value(handle.data);
+            return fct::get<0>(handle.vtables)->value(handle.data);
         }),
     };
 };
@@ -213,23 +213,23 @@ struct ValueModel {
 
 void test_manual_template_interface() {
     ValueModel model{56};
-    auto handle = proxy::as_handle<IManualValue<int>>(&model);
-    proxy::data_handle data = handle;
+    auto handle = fct::as_handle<IManualValue<int>>(&model);
+    fct::data_handle data = handle;
 
-    proxy::interface_handle<IManualValue<int>> value{data};
+    fct::interface_handle<IManualValue<int>> value{data};
     assert(value);
     assert(value->value() == 56);
 
-    proxy::interface_handle<IManualValue<double>> wrong_value{data};
+    fct::interface_handle<IManualValue<double>> wrong_value{data};
     assert(!wrong_value);
 }
 
 struct IManualBase {};
 
-namespace proxy {
+namespace fct {
 template<>
 struct interface_id<IManualBase> {
-    static constexpr interface_id_t value = "proxy.tests.manual.base";
+    static constexpr interface_id_t value = "facet.tests.manual.base";
 };
 
 template<>
@@ -243,7 +243,7 @@ template<>
 struct direct_methods<IManualBase> {
     static constexpr std::array<direct_method_t, 1> value = {
         direct_method("base", [](interface_handle<IManualBase> handle) {
-            return proxy::get<0>(handle.vtables)->base(handle.data);
+            return fct::get<0>(handle.vtables)->base(handle.data);
         }),
     };
 };
@@ -266,9 +266,9 @@ struct vtable_implements<Impl, IManualBase> {
 };
 }
 
-struct[[= proxy::spec]]
-      [[= proxy::uuid("proxy.tests.manual.derived")]] IDerived : IManualBase {
-    [[= proxy::adaptor([](auto impl) {
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.manual.derived")]] IDerived : IManualBase {
+    [[= fct::adaptor([](auto impl) {
         return impl.get()->impl_derived();
     })]] int derived();
 };
@@ -285,7 +285,7 @@ struct Derived {
 
 void test_manual_derived() {
     Derived derived;
-    auto handle = proxy::as_handle<IDerived>(&derived);
+    auto handle = fct::as_handle<IDerived>(&derived);
     assert(handle->base() == 12);
     assert(handle->derived() == 34);
 }

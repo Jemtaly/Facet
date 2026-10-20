@@ -1,20 +1,20 @@
 #pragma once
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
-#ifndef PROXY_TEST_API_LEVEL
-#define PROXY_TEST_API_LEVEL 2
+#ifndef FACET_TEST_API_LEVEL
+#define FACET_TEST_API_LEVEL 2
 #endif
 
-namespace proxy_test_evolution {
-struct[[= proxy::spec]]
-      [[= proxy::uuid("proxy.tests.versioned-api")]]
-      [[= proxy::version(PROXY_TEST_API_LEVEL)]] IRevisioned {
+namespace facet_test_evolution {
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.versioned-api")]]
+      [[= fct::version(FACET_TEST_API_LEVEL)]] IRevisioned {
     int value() const;
 
-#if PROXY_TEST_API_LEVEL >= 2
-    [[= proxy::since(2, [](auto self, int delta) {
+#if FACET_TEST_API_LEVEL >= 2
+    [[= fct::since(2, [](auto self, int delta) {
         return self->value() + delta;
     })]] int value_after_upgrade(int delta) const;
 #endif

@@ -1,9 +1,9 @@
 #include "interfaces.hpp"
 
 #if defined(_WIN32)
-#define PROXY_TEST_EXPORT __declspec(dllexport)
+#define FACET_TEST_EXPORT __declspec(dllexport)
 #else
-#define PROXY_TEST_EXPORT __attribute__((visibility("default")))
+#define FACET_TEST_EXPORT __attribute__((visibility("default")))
 #endif
 
 namespace {
@@ -20,8 +20,8 @@ struct PluginService {
 PluginService service;
 }
 
-extern "C" PROXY_TEST_EXPORT void proxy_test_make_root(
-    proxy::interface_handle<proxy_test_abi::IRoot> *out) {
-    auto handle = proxy::as_handle<proxy_test_abi::IRoot, proxy_test_abi::IExtra>(&service);
-    *out = proxy::interface_handle<proxy_test_abi::IRoot>(handle);
+extern "C" FACET_TEST_EXPORT void facet_test_make_root(
+    fct::interface_handle<facet_test_abi::IRoot> *out) {
+    auto handle = fct::as_handle<facet_test_abi::IRoot, facet_test_abi::IExtra>(&service);
+    *out = fct::interface_handle<facet_test_abi::IRoot>(handle);
 }

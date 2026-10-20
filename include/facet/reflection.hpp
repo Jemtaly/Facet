@@ -9,14 +9,14 @@
 #include <string_view>
 #include <vector>
 
-#include <proxy.hpp>
+#include <facet.hpp>
 
 // ============================================================================
 // Reflection utilities
 // ============================================================================
 
-namespace proxy {
-// [[=spec]] marks a type as a proxy interface specification.
+namespace fct {
+// [[=spec]] marks a type as a facet interface specification.
 struct spec_t {};
 
 constexpr inline spec_t spec{};
@@ -155,7 +155,7 @@ struct default_def {
 
     static constexpr std::span<field_descriptor const> field_descriptors = [] {
         if (!meta::is_class_type(^^I)) {
-            compile_time_error("proxy: interface spec must be a class type");
+            compile_time_error("facet: interface spec must be a class type");
         }
         std::vector<field_descriptor> result;
         for (meta::info base : meta::bases_of(^^I, all_ctx())) {
@@ -172,7 +172,7 @@ struct default_def {
                 meta::is_operator_function(member) ||
                 meta::is_conversion_function(member) ||
                 meta::is_function_template(member)) {
-                compile_time_error("proxy: interface spec contains invalid member function");
+                compile_time_error("facet: interface spec contains invalid member function");
             }
             result.emplace_back(field_kind::method, member);
         }
@@ -256,7 +256,7 @@ struct default_def {
     template<meta::info Method, meta::info Member, class R, class... A>
     struct automatic_method_invoker_t<Method, Member, R(A...)> {
         R operator()(interface_handle_type handle, A... args) const {
-            vtable_type const *vt = proxy::get<0>(handle.vtables);
+            vtable_type const *vt = fct::get<0>(handle.vtables);
             constexpr since_t since_info = get_method_since(Method);
             if constexpr (since_info.default_impl != meta::info{}) {
                 if (vt->version < since_info.version) {

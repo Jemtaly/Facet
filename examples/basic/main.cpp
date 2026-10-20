@@ -1,14 +1,14 @@
 #include <cassert>
 #include <string>
 
-#include <proxy.hpp>
-#include <proxy/reflection.hpp>
+#include <facet.hpp>
+#include <facet/reflection.hpp>
 
-struct[[= proxy::spec]] IBase {
+struct[[= fct::spec]] IBase {
     void base() const;
 };
 
-struct[[= proxy::spec]] IDerived : IBase {
+struct[[= fct::spec]] IDerived : IBase {
     void derived() const;
 };
 
@@ -28,13 +28,13 @@ struct BadDerivedModel {
 };
 
 void test_implementation() {
-    static_assert(proxy::implements<GoodBaseModel, IBase>);
-    static_assert(!proxy::implements<BadBaseModel, IBase>);
-    static_assert(proxy::implements<GoodDerivedModel, IDerived>);
-    static_assert(!proxy::implements<BadDerivedModel, IDerived>);
+    static_assert(fct::implements<GoodBaseModel, IBase>);
+    static_assert(!fct::implements<BadBaseModel, IBase>);
+    static_assert(fct::implements<GoodDerivedModel, IDerived>);
+    static_assert(!fct::implements<BadDerivedModel, IDerived>);
 }
 
-struct[[= proxy::spec]] INamed {
+struct[[= fct::spec]] INamed {
     std::string name() const;
 };
 
@@ -48,8 +48,8 @@ struct NamedModel {
 
 void test_named_interface() {
     NamedModel model{"example"};
-    auto handle = proxy::as_handle<INamed>(&model);
-    proxy::interface_handle<INamed> named = handle;
+    auto handle = fct::as_handle<INamed>(&model);
+    fct::interface_handle<INamed> named = handle;
     assert(named);
     assert(named->name() == "example");
     handle.get()->name_ = "updated";
@@ -57,12 +57,12 @@ void test_named_interface() {
 }
 
 template<class T>
-struct[[= proxy::spec]] IView {
+struct[[= fct::spec]] IView {
     T get() const;
 };
 
 template<class T>
-struct[[= proxy::spec]] ICell : IView<T> {
+struct[[= fct::spec]] ICell : IView<T> {
     void set(T value);
 };
 
@@ -81,26 +81,26 @@ struct Cell {
 
 void test_template_interface() {
     Cell<std::string> text{"initial"};
-    proxy::interface_handle<ICell<std::string>> cell = proxy::as_handle<ICell<std::string>>(&text);
-    proxy::interface_handle<IView<std::string>> view = cell;
+    fct::interface_handle<ICell<std::string>> cell = fct::as_handle<ICell<std::string>>(&text);
+    fct::interface_handle<IView<std::string>> view = cell;
     assert(view->get() == "initial");
     cell->set("updated");
     assert(view->get() == "updated");
 }
 
-struct[[= proxy::spec]] ITop {
+struct[[= fct::spec]] ITop {
     int top() const;
 };
 
-struct[[= proxy::spec]] ILeft : ITop {
+struct[[= fct::spec]] ILeft : ITop {
     int left() const;
 };
 
-struct[[= proxy::spec]] IRight : ITop {
+struct[[= fct::spec]] IRight : ITop {
     int right() const;
 };
 
-struct[[= proxy::spec]] IBottom
+struct[[= fct::spec]] IBottom
     : ILeft
     , IRight {
     int bottom() const;
@@ -126,19 +126,19 @@ struct Model {
 
 void test_upcast() {
     Model model;
-    proxy::interface_handle<IBottom> bottom = proxy::as_handle<IBottom>(&model);
+    fct::interface_handle<IBottom> bottom = fct::as_handle<IBottom>(&model);
     assert(bottom);
     assert(bottom->top() == 1);
 
-    proxy::interface_handle<ILeft> left = bottom;
+    fct::interface_handle<ILeft> left = bottom;
     assert(left);
     assert(left->top() == 1);
 
-    proxy::interface_handle<IRight> right = bottom;
+    fct::interface_handle<IRight> right = bottom;
     assert(right);
     assert(right->top() == 1);
 
-    proxy::interface_handle<ITop> top = bottom;
+    fct::interface_handle<ITop> top = bottom;
     assert(top);
     assert(top->top() == 1);
 }
