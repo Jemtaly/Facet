@@ -4,11 +4,11 @@
 #include <proxy.hpp>
 #include <proxy/reflection.hpp>
 
-struct IBase {
+struct[[= proxy::spec]] IBase {
     void base() const;
 };
 
-struct IDerived : IBase {
+struct[[= proxy::spec]] IDerived : IBase {
     void derived() const;
 };
 
@@ -34,7 +34,7 @@ void test_implementation() {
     static_assert(!proxy::implements<BadDerivedModel, IDerived>);
 }
 
-struct INamed {
+struct[[= proxy::spec]] INamed {
     std::string name() const;
 };
 
@@ -57,12 +57,12 @@ void test_named_interface() {
 }
 
 template<class T>
-struct IView {
+struct[[= proxy::spec]] IView {
     T get() const;
 };
 
 template<class T>
-struct ICell : IView<T> {
+struct[[= proxy::spec]] ICell : IView<T> {
     void set(T value);
 };
 
@@ -88,19 +88,19 @@ void test_template_interface() {
     assert(view->get() == "updated");
 }
 
-struct ITop {
+struct[[= proxy::spec]] ITop {
     int top() const;
 };
 
-struct ILeft : ITop {
+struct[[= proxy::spec]] ILeft : ITop {
     int left() const;
 };
 
-struct IRight : ITop {
+struct[[= proxy::spec]] IRight : ITop {
     int right() const;
 };
 
-struct IBottom
+struct[[= proxy::spec]] IBottom
     : ILeft
     , IRight {
     int bottom() const;

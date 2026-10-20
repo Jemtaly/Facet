@@ -26,6 +26,11 @@ consteval uuid_t uuid(std::string_view value) {
     return {static_string::make(value)};
 }
 
+// [[=spec]] marks a type as a proxy interface specification.
+struct spec_t {};
+
+inline constexpr spec_t spec{};
+
 using interface_version_t = std::uint64_t;
 
 // [[=version(n)]] sets the version recorded in the generated function table;
@@ -59,6 +64,9 @@ inline consteval interface_id_t get_interface_id(meta::info I) {
     return meta::extract<uuid_t>(annotations[0]).value.data;
 }
 
+template<class I>
+concept is_spec = !meta::annotations_of_with_type(^^I, ^^spec_t).empty();
+
 inline consteval interface_version_t get_interface_version(meta::info I) {
     auto annotations = meta::annotations_of_with_type(I, ^^version_t);
     return annotations.empty() ? 0 : meta::extract<version_t>(annotations[0]).value;
@@ -67,6 +75,16 @@ inline consteval interface_version_t get_interface_version(meta::info I) {
 inline consteval since_t get_method_since(meta::info method) {
     auto annotations = meta::annotations_of_with_type(method, ^^since_t);
     return annotations.empty() ? since_t{} : meta::extract<since_t>(annotations[0]);
+}
+
+inline consteval static_string get_method_call_name(meta::info method) {
+    auto annotations = meta::annotations_of_with_type(method, ^^call_name_t);
+    return annotations.empty() ? static_string::make(meta::identifier_of(method)) : meta::extract<call_name_t>(annotations[0]).value;
+}
+
+inline consteval static_string get_method_impl_name(meta::info method) {
+    auto annotations = meta::annotations_of_with_type(method, ^^impl_name_t);
+    return annotations.empty() ? static_string::make(meta::identifier_of(method)) : meta::extract<impl_name_t>(annotations[0]).value;
 }
 
 template<class R, class... A>
@@ -497,22 +515,22 @@ struct interface_id<I> {
     static constexpr interface_id_t value = detail::get_interface_id(^^I);
 };
 
-template<class I>
-struct direct_methods {
+template<detail::is_spec I>
+struct direct_methods<I> {
     static constexpr auto const &value = detail::default_def<I>::direct_members.methods;
 };
 
-template<class I>
-struct direct_bases {
+template<detail::is_spec I>
+struct direct_bases<I> {
     static constexpr auto const &value = detail::default_def<I>::direct_members.bases;
 };
 
-template<class I>
-struct vtable {
+template<detail::is_spec I>
+struct vtable<I> {
     using type = typename detail::default_def<I>::vtable_type;
 };
 
-template<class Data, class I>
+template<class Data, detail::is_spec I>
     requires(detail::default_def<I>::template vtable_implements<Data>::has_value)
 struct vtable_implements<Data, I> {
     static constexpr vtable_t<I> const *value = detail::default_def<I>::template vtable_implements<Data>::value;

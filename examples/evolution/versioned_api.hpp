@@ -8,7 +8,8 @@
 #endif
 
 namespace proxy_test_evolution {
-struct[[= proxy::uuid("proxy.tests.versioned-api")]]
+struct[[= proxy::spec]]
+      [[= proxy::uuid("proxy.tests.versioned-api")]]
       [[= proxy::version(PROXY_TEST_API_LEVEL)]] IRevisioned {
     int value() const;
 

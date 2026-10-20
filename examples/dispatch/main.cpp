@@ -4,7 +4,7 @@
 #include <proxy.hpp>
 #include <proxy/reflection.hpp>
 
-struct ICalculator {
+struct[[= proxy::spec]] ICalculator {
     int calculate() const;
     int calculate(int value) const;
 };
@@ -26,11 +26,11 @@ void test_overloaded_implementation_methods() {
     assert(handle->calculate(5) == 20);
 }
 
-struct ITextChannel {
+struct[[= proxy::spec]] ITextChannel {
     std::string send() const;
 };
 
-struct IIndexChannel {
+struct[[= proxy::spec]] IIndexChannel {
     int send(int index) const;
 };
 
@@ -51,11 +51,11 @@ void test_same_name_automatic_dispatch() {
     assert(handle->send(7) == 21);
 }
 
-struct ILeft {
+struct[[= proxy::spec]] ILeft {
     int value() const;
 };
 
-struct IRight {
+struct[[= proxy::spec]] IRight {
     int value() const;
 };
 
@@ -76,7 +76,7 @@ void test_manual_dispatch_for_name_conflicts() {
     assert(handle.as<IRight>()->value() == 2);
 }
 
-struct ISelect {
+struct[[= proxy::spec]] ISelect {
     int select(int value) const;
 };
 

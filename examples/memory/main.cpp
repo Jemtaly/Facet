@@ -5,7 +5,7 @@
 #include <proxy/memory.hpp>
 #include <proxy/reflection.hpp>
 
-struct ICounter {
+struct[[= proxy::spec]] ICounter {
     int count() const;
 };
 
@@ -71,7 +71,7 @@ void test_tracked_lifetime() {
     assert(Tracked::destroyed == 3);
 }
 
-struct IRecoverable {
+struct[[= proxy::spec]] IRecoverable {
     proxy::interface_holder<IRecoverable> retain() const;
 };
 
