@@ -50,9 +50,20 @@ struct since_t {
     std::meta::info default_impl;
 };
 
-template<class Candidate>
-consteval since_t since(interface_version_t version, Candidate impl) {
+template<class Func>
+consteval since_t since(interface_version_t version, Func impl) {
     return {version, std::meta::reflect_constant(impl)};
+}
+
+// [[=adaptor(func)]] specifies the adaptor function used to invoke the method in the
+// generated function table.
+struct adaptor_t {
+    std::meta::info adaptor_func;
+};
+
+template<class Func>
+consteval adaptor_t adaptor(Func func) {
+    return {std::meta::reflect_constant(func)};
 }
 
 namespace detail {
@@ -77,14 +88,9 @@ inline consteval since_t get_method_since(meta::info method) {
     return annotations.empty() ? since_t{} : meta::extract<since_t>(annotations[0]);
 }
 
-inline consteval static_string get_method_call_name(meta::info method) {
-    auto annotations = meta::annotations_of_with_type(method, ^^call_name_t);
-    return annotations.empty() ? static_string::make(meta::identifier_of(method)) : meta::extract<call_name_t>(annotations[0]).value;
-}
-
-inline consteval static_string get_method_impl_name(meta::info method) {
-    auto annotations = meta::annotations_of_with_type(method, ^^impl_name_t);
-    return annotations.empty() ? static_string::make(meta::identifier_of(method)) : meta::extract<impl_name_t>(annotations[0]).value;
+inline consteval meta::info get_adaptor_func(meta::info method) {
+    auto annotations = meta::annotations_of_with_type(method, ^^adaptor_t);
+    return annotations.empty() ? meta::info{} : meta::extract<adaptor_t>(annotations[0]).adaptor_func;
 }
 
 template<class R, class... A>
@@ -348,12 +354,8 @@ struct default_def {
                 requires requires(object_handle_type handle, A... args) {
                     { [:Candidate:](handle, std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            struct static_invoke_adaptor {
-                object_handle_type handle;
-
-                R operator()(A... args) const {
-                    return [:Candidate:](handle, std::forward<A>(args)...);
-                }
+            static constexpr auto static_invoke_adaptor = [](object_handle_type handle, A... args) -> R {
+                return [:Candidate:](handle, std::forward<A>(args)...);
             };
 
             static consteval bool is_static_exact(meta::info candidate) {
@@ -381,12 +383,8 @@ struct default_def {
                 requires requires(object_handle_type handle, A... args) {
                     { handle.get()->[:Candidate:](std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            struct member_invoke_adaptor {
-                object_handle_type handle;
-
-                R operator()(A... args) const {
-                    return handle.get()->[:Candidate:](std::forward<A>(args)...);
-                }
+            static constexpr auto member_invoke_adaptor = [](object_handle_type handle, A... args) -> R {
+                return handle.get()->[:Candidate:](std::forward<A>(args)...);
             };
 
             static consteval bool is_member_exact(meta::info candidate) {
@@ -405,6 +403,10 @@ struct default_def {
             }
 
             static constexpr meta::info adaptor = [] -> meta::info {
+                auto adaptor_func = get_adaptor_func(Method);
+                if (adaptor_func != meta::info{}) {
+                    return adaptor_func;
+                }
                 std::vector<meta::info> exact_static_matches;
                 std::vector<meta::info> exact_member_matches;
                 std::vector<meta::info> static_matches;
@@ -412,7 +414,7 @@ struct default_def {
                 for (meta::info candidate : static_candidates_v<Data>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)})) {
-                            auto adaptor = meta::dealias(meta::substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)}));
+                            auto adaptor = meta::substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)});
                             if (is_static_exact(candidate)) {
                                 exact_static_matches.push_back(adaptor);
                             } else {
@@ -424,7 +426,7 @@ struct default_def {
                 for (meta::info candidate : member_candidates_v<Data>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)})) {
-                            auto adaptor = meta::dealias(meta::substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)}));
+                            auto adaptor = meta::substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)});
                             if (is_member_exact(candidate)) {
                                 exact_member_matches.push_back(adaptor);
                             } else {
@@ -452,7 +454,7 @@ struct default_def {
                 requires(adaptor != meta::info{})
             {
                 object_handle_type object(static_cast<Data *>(handle.data), handle.rtti, handle.vtables);
-                return typename[:adaptor:](object)(std::forward<A>(args)...);
+                return [:adaptor:](object, std::forward<A>(args)...);
             }
         };
 

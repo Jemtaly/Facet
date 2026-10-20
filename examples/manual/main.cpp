@@ -2,11 +2,12 @@
 #include <cassert>
 
 #include <proxy.hpp>
+#include <proxy/reflection.hpp>
 
 // Interface tags
-struct IManualRoot;
-struct IManualReader;
-struct IManualCounter;
+struct[[= proxy::uuid("proxy.tests.manual.root")]] IManualRoot;
+struct[[= proxy::uuid("proxy.tests.manual.reader")]] IManualReader;
+struct[[= proxy::uuid("proxy.tests.manual.counter")]] IManualCounter;
 
 struct RootDispatch {
     int (*root_value)(void *);
@@ -21,21 +22,6 @@ struct CounterDispatch {
 };
 
 namespace proxy {
-template<>
-struct interface_id<IManualRoot> {
-    static constexpr interface_id_t value = "proxy.tests.manual.root";
-};
-
-template<>
-struct interface_id<IManualReader> {
-    static constexpr interface_id_t value = "proxy.tests.manual.reader";
-};
-
-template<>
-struct interface_id<IManualCounter> {
-    static constexpr interface_id_t value = "proxy.tests.manual.counter";
-};
-
 template<>
 struct vtable<IManualRoot> {
     struct type {
@@ -161,7 +147,7 @@ struct Counter {
     int value;
 };
 
-int main() {
+void test_manual_counter() {
     Counter counter{42};
     auto handle = proxy::as_handle<IManualCounter>(&counter);
     assert(handle->count() == 42);
@@ -173,4 +159,75 @@ int main() {
     proxy::interface_handle<IManualCounter> recast{reader};
     assert(recast);
     assert(recast->count() == 42);
+}
+
+struct IManualBase {};
+
+namespace proxy {
+template<>
+struct interface_id<IManualBase> {
+    static constexpr interface_id_t value = "proxy.tests.manual.base";
+};
+
+template<>
+struct vtable<IManualBase> {
+    struct type {
+        int (*base)(void *data);
+    };
+};
+
+template<>
+struct direct_methods<IManualBase> {
+    static constexpr std::array<direct_method_t, 1> value = {
+        direct_method("base", [](interface_handle<IManualBase> handle) {
+            return proxy::get<0>(handle.vtables)->base(handle.data);
+        }),
+    };
+};
+
+template<>
+struct direct_bases<IManualBase> {
+    static constexpr std::array<direct_base_t, 0> value = {};
+};
+
+template<typename Impl>
+struct vtable_implements<Impl, IManualBase> {
+    static int base(void *data) {
+        return static_cast<Impl *>(data)->impl_base();
+    }
+
+    static constexpr vtable_t<IManualBase> table{
+        .base = base,
+    };
+    static constexpr vtable_t<IManualBase> const *value = &table;
+};
+}
+
+struct[[= proxy::spec]]
+      [[= proxy::uuid("proxy.tests.manual.derived")]] IDerived : IManualBase {
+    [[= proxy::adaptor([](auto impl) {
+        return impl.get()->impl_derived();
+    })]] int derived();
+};
+
+struct Derived {
+    int impl_base() {
+        return 12;
+    }
+
+    int impl_derived() {
+        return 34;
+    }
+};
+
+void test_manual_derived() {
+    Derived derived;
+    auto handle = proxy::as_handle<IDerived>(&derived);
+    assert(handle->base() == 12);
+    assert(handle->derived() == 34);
+}
+
+int main() {
+    test_manual_counter();
+    test_manual_derived();
 }

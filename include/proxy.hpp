@@ -542,6 +542,7 @@ template<class Data, class I>
 constexpr vtable_t<I> const *vtable_implements_v = vtable_implements<Data, I>::value;
 
 template<class Data, class... Is>
+    requires(implements<Data, Is> && ...)
 struct static_policy {
     template<class I>
     static constexpr vtable_t<I> const *vtable_ptr = vtable_implements_v<Data, I>;
