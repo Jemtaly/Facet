@@ -370,7 +370,9 @@ struct dispatch_group {
     std::vector<meta::info> invokers;
 };
 
-consteval dispatch_group &find_or_create_group(std::vector<dispatch_group> &table, std::string_view name) {
+using dispatch_table = std::vector<dispatch_group>;
+
+consteval dispatch_group &find_or_create_group(dispatch_table &table, std::string_view name) {
     for (dispatch_group &group : table) {
         if (group.name == name) {
             return group;
@@ -380,13 +382,13 @@ consteval dispatch_group &find_or_create_group(std::vector<dispatch_group> &tabl
 }
 
 template<class Face>
-consteval void append_dispatch_table(std::vector<dispatch_group> &table) {
+consteval void append_dispatch_table(dispatch_table &table) {
     for (direct_method_t method : direct_methods_v<Face>) {
         find_or_create_group(table, method.name.view()).invokers.push_back(method.invoker);
     }
 }
 
-consteval void define_facade_members(meta::info type, meta::info self, std::span<dispatch_group const> table) {
+consteval void define_facade_members(meta::info type, meta::info self, dispatch_table const &table) {
     std::vector<meta::info> members;
     for (auto const &[name, invokers] : table) {
         std::vector<meta::info> slot_args = {type, self, meta::reflect_constant(members.size())};
@@ -403,7 +405,7 @@ struct facade_def {
     struct type;
 
     consteval {
-        std::vector<dispatch_group> table;
+        dispatch_table table;
         append_dispatch_table<Face>(table);
         define_facade_members(^^type, ^^Self, table);
     }
@@ -414,7 +416,7 @@ struct combined_facade_def {
     struct type;
 
     consteval {
-        std::vector<dispatch_group> table;
+        dispatch_table table;
         template for (constexpr meta::info face : combined_interface_closure_v<Faces...>) {
             using Face = typename[:face:];
             append_dispatch_table<Face>(table);

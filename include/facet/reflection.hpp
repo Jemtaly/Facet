@@ -83,7 +83,7 @@ inline consteval meta::info method_signature(meta::info method) {
     for (meta::info parameter : meta::parameters_of(method)) {
         components.push_back(meta::type_of(parameter));
     }
-    return meta::dealias(meta::substitute(^^function_signature_t, components));
+    return meta::substitute(^^function_signature_t, components);
 }
 
 static consteval bool is_static_candidate_function(meta::info candidate) {
@@ -98,40 +98,58 @@ static consteval bool is_member_candidate_function(meta::info candidate) {
 }
 
 static consteval void collect_static_candidates(
-    meta::info implementation, std::vector<meta::info> &out) {
-    for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
+    meta::info impl,
+    std::vector<meta::info> &visited,
+    std::vector<meta::info> &out) {
+    for (meta::info v : visited) {
+        if (meta::is_same_type(v, impl)) {
+            return;
+        }
+    }
+    visited.push_back(impl);
+    for (meta::info candidate : meta::members_of(impl, pub_ctx())) {
         if (is_static_candidate_function(candidate)) {
             out.push_back(candidate);
         }
     }
-    for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
-        collect_static_candidates(meta::type_of(base), out);
+    for (meta::info base : meta::bases_of(impl, pub_ctx())) {
+        collect_static_candidates(meta::type_of(base), visited, out);
     }
 }
 
 static consteval void collect_member_candidates(
-    meta::info implementation, std::vector<meta::info> &out) {
-    for (meta::info candidate : meta::members_of(implementation, pub_ctx())) {
+    meta::info impl,
+    std::vector<meta::info> &visited,
+    std::vector<meta::info> &out) {
+    for (meta::info v : visited) {
+        if (meta::is_same_type(v, impl)) {
+            return;
+        }
+    }
+    visited.push_back(impl);
+    for (meta::info candidate : meta::members_of(impl, pub_ctx())) {
         if (is_member_candidate_function(candidate)) {
             out.push_back(candidate);
         }
     }
-    for (meta::info base : meta::bases_of(implementation, pub_ctx())) {
-        collect_member_candidates(meta::type_of(base), out);
+    for (meta::info base : meta::bases_of(impl, pub_ctx())) {
+        collect_member_candidates(meta::type_of(base), visited, out);
     }
 }
 
 template<class Impl>
 static constexpr std::span<meta::info const> static_candidates_v = [] {
     std::vector<meta::info> out;
-    collect_static_candidates(^^Impl, out);
+    std::vector<meta::info> visited;
+    collect_static_candidates(^^Impl, visited, out);
     return std::define_static_array(out);
 }();
 
 template<class Impl>
 static constexpr std::span<meta::info const> member_candidates_v = [] {
     std::vector<meta::info> out;
-    collect_member_candidates(^^Impl, out);
+    std::vector<meta::info> visited;
+    collect_member_candidates(^^Impl, visited, out);
     return std::define_static_array(out);
 }();
 
@@ -207,20 +225,20 @@ struct from_spec_def {
         for (auto desc : field_descriptors) {
             if (desc.kind == field_kind::base) {
                 members.push_back(meta::data_member_spec(
-                    meta::dealias(meta::substitute(
+                    meta::substitute(
                         ^^base_pointer_t,
                         {
                             meta::reflect_constant(desc.spec),
-                        })),
+                        }),
                     {.name = "_"}));
             }
             if (desc.kind == field_kind::method) {
                 members.push_back(meta::data_member_spec(
-                    meta::dealias(meta::substitute(
+                    meta::substitute(
                         ^^method_pointer_t,
                         {
                             meta::reflect_constant(desc.spec),
-                        })),
+                        }),
                     {.name = "_"}));
             }
         }
@@ -389,10 +407,9 @@ struct from_spec_def {
                 if (method_adapter != meta::info{}) {
                     return method_adapter;
                 }
+
                 std::vector<meta::info> exact_static_matches;
-                std::vector<meta::info> exact_member_matches;
                 std::vector<meta::info> static_matches;
-                std::vector<meta::info> member_matches;
                 for (meta::info candidate : static_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^static_invoke_adapter, {meta::reflect_constant(candidate)})) {
@@ -405,6 +422,12 @@ struct from_spec_def {
                         }
                     }
                 }
+                for (meta::info match : exact_static_matches) {
+                    return match;
+                }
+
+                std::vector<meta::info> exact_member_matches;
+                std::vector<meta::info> member_matches;
                 for (meta::info candidate : member_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^member_invoke_adapter, {meta::reflect_constant(candidate)})) {
@@ -417,12 +440,10 @@ struct from_spec_def {
                         }
                     }
                 }
-                for (meta::info match : exact_static_matches) {
-                    return match;
-                }
                 for (meta::info match : exact_member_matches) {
                     return match;
                 }
+
                 for (meta::info match : static_matches) {
                     return match;
                 }
@@ -473,19 +494,19 @@ struct from_spec_def {
             for (auto desc : field_descriptors) {
                 if (desc.kind == field_kind::base) {
                     members.push_back(
-                        meta::dealias(meta::substitute(
+                        meta::substitute(
                             ^^base_pointer_v,
                             {
                                 meta::reflect_constant(desc.spec),
-                            })));
+                            }));
                 }
                 if (desc.kind == field_kind::method) {
                     members.push_back(
-                        meta::dealias(meta::substitute(
+                        meta::substitute(
                             ^^method_pointer_v,
                             {
                                 meta::reflect_constant(desc.spec),
-                            })));
+                            }));
                 }
             }
             return meta::extract<vtable_type const *>(meta::substitute(^^pointer_with, members));
