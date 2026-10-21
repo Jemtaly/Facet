@@ -130,37 +130,37 @@ void test_implementation_priority() {
     assert(fct::as_facets<ISelect>(&model_d)->select(1) == 71);
 }
 
-struct[[= fct::spec]] ICustom {
-    [[= fct::adapter([](auto impl) {
-        if constexpr (requires { impl.get()->custom(); }) {
-            return impl.get()->custom();
+struct[[= fct::spec]] IShippingQuote {
+    [[= fct::adapter([](auto self, double weight_grams) -> double {
+        if constexpr (requires { self.get()->quote_cents_per_gram(weight_grams); }) {
+            return self.get()->quote_cents_per_gram(weight_grams);
         } else {
-            return impl.get()->fallback();
+            return self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
         }
-    })]] int custom() const;
+    })]]
+    double quote_cents_per_gram(double weight_grams) const;
 };
 
-struct CustomModel {
-    int custom() const {
-        return 123;
+struct CentRateService {
+    double quote_cents_per_gram(double weight_grams) const {
+        return weight_grams / 10;
     }
 };
 
-struct FallbackModel {
-    int fallback() const {
-        return 456;
+struct DollarRateService {
+    double quote_dollars_per_kilogram(double weight_kilograms) const {
+        return weight_kilograms * 1.25;
     }
 };
 
-void test_custom_adapter() {
-    CustomModel custom_model;
-    FallbackModel fallback_model;
+void test_shipping_quote_adapter() {
+    CentRateService cent_rate_service;
+    auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
+    assert(cent_quote->quote_cents_per_gram(2000) == 200);
 
-    auto custom_handle = fct::as_facets<ICustom>(&custom_model);
-    assert(custom_handle->custom() == 123);
-
-    auto fallback_handle = fct::as_facets<ICustom>(&fallback_model);
-    assert(fallback_handle->custom() == 456);
+    DollarRateService dollar_rate_service;
+    auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
+    assert(dollar_quote->quote_cents_per_gram(2000) == 250);
 }
 
 int main() {
@@ -168,4 +168,5 @@ int main() {
     test_same_name_automatic_dispatch();
     test_manual_dispatch_for_name_conflicts();
     test_implementation_priority();
+    test_shipping_quote_adapter();
 }

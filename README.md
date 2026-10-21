@@ -127,7 +127,13 @@ assert(erased->count() == 42);
 erased->reset();
 ```
 
-`fct::as_facets<I...>(pointer)` returns an `typed_facets` that exposes the listed interfaces. `fct::facets<I...>` is its type-erased alias. A handle is nullable, supports `operator bool`, and is non-owning: use it for objects owned elsewhere, including stack objects, and do not access it after the original object is destroyed.
+`fct::as_facets<I...>(pointer)` returns a `typed_facets` that exposes the listed interfaces. `fct::facets<I...>` is its type-erased alias. A handle is nullable, supports `operator bool`, and is non-owning: use it for objects owned elsewhere, including stack objects, and do not access it after the original object is destroyed.
+
+You can use `fct::implements<Implementation, Interface>` to verify the same compatibility at compile time:
+
+```cpp
+static_assert(fct::implements<Counter, ICounter>);
+```
 
 An implementation can expose more than one interface in a single handle:
 
@@ -211,25 +217,39 @@ Each candidate's result must be convertible to the interface method's result. Co
 
 If Facet finds no suitable candidate for an interface method, instantiating that implementation's function table fails at compile time.
 
-To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adapter`. The adapter is called with an `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adapter takes precedence over automatic lookup:
+To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adapter`. The adapter is called with a `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adapter takes precedence over automatic lookup:
 
 ```cpp
-struct [[= fct::spec]] IDerived {
-    [[= fct::adapter([](auto self) {
-        return self.get()->impl_derived();
+struct [[= fct::spec]] IShippingQuote {
+    [[= fct::adapter([](auto self, double weight_grams) -> double {
+        if constexpr (requires { self.get()->quote_cents(weight_grams); }) {
+            return self.get()->quote_cents_per_gram(weight_grams);
+        } else {
+            return self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
+        }
     })]]
-    int derived() const;
+    double quote_cents_per_gram(double weight_grams) const;
 };
 
-struct Derived {
-    int impl_derived() const {
-        return 34;
+struct CentRateService {
+    double quote_cents_per_gram(double weight_grams) const {
+        return weight_grams / 10;
     }
 };
 
-Derived implementation;
-auto derived = fct::as_facets<IDerived>(&implementation);
-assert(derived->derived() == 34);
+struct DollarRateService {
+    double quote_dollars_per_kilogram(double weight_grams) const {
+        return weight_grams * 1.25;
+    }
+};
+
+CentRateService cent_rate_service;
+auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
+assert(cent_quote->quote_cents_per_gram(2000) == 200);
+
+DollarRateService dollar_rate_service;
+auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
+assert(dollar_quote->quote_cents_per_gram(2000) == 250);
 ```
 
 The lambda can also accept the interface method's arguments and use the object handle to access the implementation, making it possible to rename or transform a call without adding a matching implementation member.
@@ -310,6 +330,8 @@ fct::opaque data = fct::as_facets<IExtra>(&model);
 fct::facets<IExtra> extra{data};
 ```
 
+Runtime queries are explicit: direct interface-base conversions use normal handle conversion, while constructing a new `facets<Target>` from another handle performs the query. The resulting handle is null when `Target` is not among the interfaces exposed by the object or their base interfaces.
+
 ### 6. Manage lifetimes with type-erased ownership
 
 Include `<facet/memory.hpp>` for owning wrappers. The library provides `make_shared` and `make_unique`, plus aliases that erase the implementation type while retaining the exposed interfaces:
@@ -318,7 +340,7 @@ Include `<facet/memory.hpp>` for owning wrappers. The library provides `make_sha
 | --- | --- |
 | `make_shared<Impl, I...>(args...)` | Reference-counted ownership |
 | `shared_facets<I...>` | Shared, type-erased ownership |
-| `weak_facets<I...>` | Non-owning view of a shared object |
+| `weak_facets<I...>` | Non-owning view of a shared object; does not extend its lifetime |
 | `make_unique<Impl, I...>(args...)` | Unique ownership |
 | `unique_facets<I...>` | Unique, type-erased ownership |
 | `weak_opaque`, `shared_opaque`, `unique_opaque` | The respective type-erased wrappers with no exposed interface methods |
@@ -351,9 +373,11 @@ fct::unique_facets<ICounter> owner = std::move(unique);
 assert(owner->count() == 42);
 ```
 
+`weak_facets` is a borrowing view, not an expiring `std::weak_ptr`-like observer. It does not keep the shared control block or implementation alive. Keep a `shared_typed_facets` or `shared_facets` owner alive while accessing a weak view or converting it back to a shared holder; otherwise the view dangles.
+
 #### Return shared ownership from an implementation
 
-Derive a shared implementation from `fct::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle, calls `fct::retain_shared`, and converts the resulting view to a shared type-erased holder, there is also `fct::retain_weak` for obtaining a weak reference.
+Derive a shared implementation from `fct::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. Construct that implementation with `make_shared`; the factory initializes the control-block link required by `retain_shared` and `retain_weak`. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle and calls `fct::retain_shared`.
 
 ```cpp
 struct [[= fct::spec]] ISelf {
@@ -370,7 +394,7 @@ auto object = fct::make_shared<SharedObject, ISelf>();
 fct::shared_facets<ISelf> retained = object->self();
 ```
 
-`retain_weak` requires an `typed_facets<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_this<Impl>`. It returns an `weak_typed_facets`, so converting it to `shared_facets` increments the shared control block's reference count. Do not use it for borrowed objects or objects owned by `make_unique`.
+Both `retain_shared` and `retain_weak` require an `typed_facets<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_this<Impl>`. `retain_shared` increments the shared control block's reference count. `retain_weak` returns a `weak_typed_facets`; converting that view to `shared_facets` also increments the reference count, provided a shared owner is still alive. Do not use either function for borrowed objects or objects owned by `make_unique`.
 
 ### 7. Cross a dynamic-library boundary
 
@@ -420,7 +444,7 @@ struct [[= fct::spec]]
 };
 ```
 
-Build an older provider with `EXAMPLE_API_LEVEL` set to `1`. A version-2 consumer can call `value_after_upgrade`; for a version-1 provider, Facet calls the fallback instead. The full producer/consumer demonstration is in [`examples/evolution/`](./examples/evolution/).
+Build an older provider with `EXAMPLE_API_LEVEL` set to `1`, while compiling the consumer with the default level `2`. A version-2 consumer can call `value_after_upgrade`; for a version-1 provider, Facet calls the fallback instead. The provider and consumer may therefore compile the same interface header with different API levels. The full producer/consumer demonstration is in [`examples/evolution/`](./examples/evolution/).
 
 ### 9. Define the protocol manually
 
@@ -461,7 +485,7 @@ The [`examples/`](./examples/) directory contains self-contained programs:
 | --- | --- |
 | [`basic`](./examples/basic/main.cpp) | Basic interfaces, interface templates, and hierarchy conversions |
 | [`dynamic_cast`](./examples/dynamic_cast/main.cpp) | Runtime interface queries from interface and data handles |
-| [`dispatch`](./examples/dispatch/main.cpp) | Overloads, automatic dispatch, and interface-specific static dispatch |
+| [`dispatch`](./examples/dispatch/main.cpp) | Overloads, dispatch priority, interface-specific static dispatch, and adapters |
 | [`manual`](./examples/manual/main.cpp) | Explicit vtable and metadata specializations, including template interface IDs |
 | [`memory`](./examples/memory/main.cpp) | Shared, unique, and borrowed wrappers |
 | [`abi`](./examples/abi/main.cpp) | Shared-library interfaces identified by UUID |
