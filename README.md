@@ -30,7 +30,7 @@ $env:CXX = "C:\path\to\compiler.exe"
 | Header | Purpose |
 | --- | --- |
 | [`<facet.hpp>`](./include/facet.hpp) | Core handles, interface protocol types, generated facade dispatch, conversions, implementation lookup, and the `local_id` and `uuid` interface-ID annotations |
-| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Reflection-generated protocol and the `spec`, `version`, `since`, and `adapter` annotations |
+| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Reflection-generated protocol and the `spec`, `version`, `since`, and `dispatch_via` annotations |
 | [`<facet/memory.hpp>`](./include/facet/memory.hpp) | Shared and unique ownership wrappers and factories; includes `<facet.hpp>` |
 
 ## Quick start
@@ -217,11 +217,11 @@ Each candidate's result must be convertible to the interface method's result. Co
 
 If Facet finds no suitable candidate for an interface method, instantiating that implementation's function table fails at compile time.
 
-To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adapter`. The adapter is called with a `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adapter takes precedence over automatic lookup:
+To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::dispatch_via`. The dispatcher is called with a `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated dispatcher takes precedence over automatic lookup:
 
 ```cpp
 struct [[= fct::spec]] IShippingQuote {
-    [[= fct::adapter([](auto self, double weight_grams) -> double {
+    [[= fct::dispatch_via([](auto self, double weight_grams) -> double {
         if constexpr (requires { self.get()->quote_cents(weight_grams); }) {
             return self.get()->quote_cents_per_gram(weight_grams);
         } else {
@@ -485,7 +485,7 @@ The [`examples/`](./examples/) directory contains self-contained programs:
 | --- | --- |
 | [`basic`](./examples/basic/main.cpp) | Basic interfaces, interface templates, and hierarchy conversions |
 | [`dynamic_cast`](./examples/dynamic_cast/main.cpp) | Runtime interface queries from interface and data handles |
-| [`dispatch`](./examples/dispatch/main.cpp) | Overloads, dispatch priority, interface-specific static dispatch, and adapters |
+| [`dispatch`](./examples/dispatch/main.cpp) | Overloads, dispatch priority, interface-specific static dispatch, and custom dispatchers |
 | [`manual`](./examples/manual/main.cpp) | Explicit vtable and metadata specializations, including template interface IDs |
 | [`memory`](./examples/memory/main.cpp) | Shared, unique, and borrowed wrappers |
 | [`abi`](./examples/abi/main.cpp) | Shared-library interfaces identified by UUID |

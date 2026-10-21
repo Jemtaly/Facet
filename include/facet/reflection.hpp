@@ -45,15 +45,15 @@ consteval since_t since(interface_version_t version, Fallback fallback) {
     return {version, std::meta::reflect_constant(fallback)};
 }
 
-// [[=adapter(func)]] specifies the adapter function used to invoke the
+// [[=dispatch_via(func)]] specifies the function used to dispatch the
 // method in the generated function table.
-struct adapter_t {
-    std::meta::info adapter;
+struct dispatch_via_t {
+    std::meta::info dispatcher;
 };
 
-template<class Adapter>
-consteval adapter_t adapter(Adapter adapter) {
-    return {std::meta::reflect_constant(adapter)};
+template<class Dispatcher>
+consteval dispatch_via_t dispatch_via(Dispatcher dispatcher) {
+    return {std::meta::reflect_constant(dispatcher)};
 }
 
 namespace detail {
@@ -70,9 +70,9 @@ inline consteval since_t get_method_since(meta::info method) {
     return annotations.empty() ? since_t{} : meta::extract<since_t>(annotations[0]);
 }
 
-inline consteval meta::info get_method_adapter(meta::info method) {
-    auto annotations = meta::annotations_of_with_type(method, ^^adapter_t);
-    return annotations.empty() ? meta::info{} : meta::extract<adapter_t>(annotations[0]).adapter;
+inline consteval meta::info get_method_dispatcher(meta::info method) {
+    auto annotations = meta::annotations_of_with_type(method, ^^dispatch_via_t);
+    return annotations.empty() ? meta::info{} : meta::extract<dispatch_via_t>(annotations[0]).dispatcher;
 }
 
 template<class R, class... A>
@@ -275,10 +275,10 @@ struct from_spec_def {
     struct automatic_method_invoker_t<Method, Member, R(A...)> {
         R operator()(facets_type self, A... args) const {
             vtable_type const *vt = fct::get<0>(self.vtables);
-            constexpr since_t method_since = get_method_since(Method);
-            if constexpr (method_since.fallback != meta::info{}) {
-                if (vt->version < method_since.version) {
-                    return [:method_since.fallback:](self, std::forward<A>(args)...);
+            constexpr since_t since = get_method_since(Method);
+            if constexpr (since.fallback != meta::info{}) {
+                if (vt->version < since.version) {
+                    return [:since.fallback:](self, std::forward<A>(args)...);
                 }
             }
             return vt->[:Member:](self, std::forward<A>(args)...);
@@ -354,7 +354,7 @@ struct from_spec_def {
                 requires requires(typed_facets_type typed_self, A... args) {
                     { [:Candidate:](typed_self, std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            static constexpr auto static_invoke_adapter = [](typed_facets_type typed_self, A... args) -> R {
+            static constexpr auto static_dispatcher = [](typed_facets_type typed_self, A... args) -> R {
                 return [:Candidate:](typed_self, std::forward<A>(args)...);
             };
 
@@ -383,7 +383,7 @@ struct from_spec_def {
                 requires requires(typed_facets_type typed_self, A... args) {
                     { typed_self.get()->[:Candidate:](std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            static constexpr auto member_invoke_adapter = [](typed_facets_type typed_self, A... args) -> R {
+            static constexpr auto member_dispatcher = [](typed_facets_type typed_self, A... args) -> R {
                 return typed_self.get()->[:Candidate:](std::forward<A>(args)...);
             };
 
@@ -402,22 +402,22 @@ struct from_spec_def {
                 return i == candidate_params.size() && j == method_params.size();
             }
 
-            static constexpr meta::info adapter = [] -> meta::info {
-                auto method_adapter = get_method_adapter(Method);
-                if (method_adapter != meta::info{}) {
-                    return method_adapter;
+            static constexpr meta::info dispatcher = [] -> meta::info {
+                auto dispatcher = get_method_dispatcher(Method);
+                if (dispatcher != meta::info{}) {
+                    return dispatcher;
                 }
 
                 std::vector<meta::info> exact_static_matches;
                 std::vector<meta::info> static_matches;
                 for (meta::info candidate : static_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
-                        if (meta::can_substitute(^^static_invoke_adapter, {meta::reflect_constant(candidate)})) {
-                            auto adapter = meta::substitute(^^static_invoke_adapter, {meta::reflect_constant(candidate)});
+                        if (meta::can_substitute(^^static_dispatcher, {meta::reflect_constant(candidate)})) {
+                            auto dispatcher = meta::substitute(^^static_dispatcher, {meta::reflect_constant(candidate)});
                             if (is_static_exact(candidate)) {
-                                exact_static_matches.push_back(adapter);
+                                exact_static_matches.push_back(dispatcher);
                             } else {
-                                static_matches.push_back(adapter);
+                                static_matches.push_back(dispatcher);
                             }
                         }
                     }
@@ -430,12 +430,12 @@ struct from_spec_def {
                 std::vector<meta::info> member_matches;
                 for (meta::info candidate : member_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
-                        if (meta::can_substitute(^^member_invoke_adapter, {meta::reflect_constant(candidate)})) {
-                            auto adapter = meta::substitute(^^member_invoke_adapter, {meta::reflect_constant(candidate)});
+                        if (meta::can_substitute(^^member_dispatcher, {meta::reflect_constant(candidate)})) {
+                            auto dispatcher = meta::substitute(^^member_dispatcher, {meta::reflect_constant(candidate)});
                             if (is_member_exact(candidate)) {
-                                exact_member_matches.push_back(adapter);
+                                exact_member_matches.push_back(dispatcher);
                             } else {
-                                member_matches.push_back(adapter);
+                                member_matches.push_back(dispatcher);
                             }
                         }
                     }
@@ -454,12 +454,12 @@ struct from_spec_def {
             }();
 
             static R call(facets_type self, A... args)
-                requires(adapter != meta::info{}) && requires(typed_facets_type typed_self, A... args) {
-                    [:adapter:](typed_self, std::forward<A>(args)...);
+                requires(dispatcher != meta::info{}) && requires(typed_facets_type typed_self, A... args) {
+                    [:dispatcher:](typed_self, std::forward<A>(args)...);
                 }
             {
                 typed_facets_type typed_self(static_cast<Impl *>(self.data), self.rtti, self.vtables);
-                return [:adapter:](typed_self, std::forward<A>(args)...);
+                return [:dispatcher:](typed_self, std::forward<A>(args)...);
             }
         };
 

@@ -131,7 +131,7 @@ void test_implementation_priority() {
 }
 
 struct[[= fct::spec]] IShippingQuote {
-    [[= fct::adapter([](auto self, double weight_grams) -> double requires(
+    [[= fct::dispatch_via([](auto self, double weight_grams) -> double requires(
         requires {
             { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
         } ||
@@ -164,7 +164,7 @@ struct DollarRateService {
 
 struct InvalidRateService {};
 
-void test_shipping_quote_adapter() {
+void test_shipping_quote_dispatcher() {
     CentRateService cent_rate_service;
     auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
     assert(cent_quote->quote_cents_per_gram(2000) == 200);
@@ -181,5 +181,5 @@ int main() {
     test_same_name_automatic_dispatch();
     test_manual_dispatch_for_name_conflicts();
     test_implementation_priority();
-    test_shipping_quote_adapter();
+    test_shipping_quote_dispatcher();
 }
