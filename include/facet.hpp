@@ -168,11 +168,11 @@ namespace fct {
 using interface_id_t = char const *;
 
 using type_info_version_t = std::uint64_t;
-using query_vtable_func_t = void const *(*)(void *, interface_id_t);
+using type_info_query_fn_t = void const *(*)(void *, interface_id_t);
 
 struct type_info {
     type_info_version_t version;
-    query_vtable_func_t query_vtable;
+    type_info_query_fn_t query;
 };
 
 template<class Face>
@@ -248,7 +248,7 @@ concept upcastable_from = requires(vtable_t<From> const *vt) {
 };
 
 template<class To, class From>
-constexpr vtable_t<To> const *vtable_upcast(vtable_t<From> const *vt) noexcept {
+constexpr vtable_t<To> const *vtable_upcast_from(vtable_t<From> const *vt) noexcept {
     if (vt == nullptr) {
         return nullptr;
     }
@@ -276,7 +276,7 @@ struct vtable_upcast_customizer<To, From> {
         template for (constexpr direct_base_t base : direct_bases_v<From>) {
             using Base = typename[:base.type:];
             if constexpr (upcastable_from<To, Base>) {
-                return vtable_upcast<To, Base>([:base.converter:](vt));
+                return vtable_upcast_from<To, Base>([:base.converter:](vt));
             }
         }
         __builtin_unreachable();
@@ -284,25 +284,25 @@ struct vtable_upcast_customizer<To, From> {
 };
 
 template<class To>
-struct vtable_dycast_customizer;
+struct vtable_query_customizer;
 
 template<class To>
-concept dycastable = requires(type_info const *rtti, void *data) {
-    { vtable_dycast_customizer<To>()(rtti, data) } -> std::same_as<vtable_t<To> const *>;
+concept queryable = requires(type_info const *rtti, void *data) {
+    { vtable_query_customizer<To>()(rtti, data) } -> std::same_as<vtable_t<To> const *>;
 };
 
 template<class To>
-constexpr vtable_t<To> const *vtable_dycast(type_info const *rtti, void *data) noexcept {
+constexpr vtable_t<To> const *vtable_query_with(type_info const *rtti, void *data) noexcept {
     if (data == nullptr) {
         return nullptr;
     }
-    return vtable_dycast_customizer<To>()(rtti, data);
+    return vtable_query_customizer<To>()(rtti, data);
 }
 
 template<has_interface_id To>
-struct vtable_dycast_customizer<To> {
+struct vtable_query_customizer<To> {
     constexpr vtable_t<To> const *operator()(type_info const *rtti, void *data) const noexcept {
-        return static_cast<vtable_t<To> const *>(rtti->query_vtable(data, interface_id_v<To>));
+        return static_cast<vtable_t<To> const *>(rtti->query(data, interface_id_v<To>));
     }
 };
 }
@@ -315,14 +315,6 @@ struct vtable_dycast_customizer<To> {
 // ============================================================================
 
 namespace fct {
-template<class Impl, class... Faces>
-struct typed_facets;
-
-template<class... Faces>
-using facets = typed_facets<void, Faces...>;
-
-using opaque = facets<>;
-
 namespace detail {
 template<class Self, class Face>
 struct facade_def;
@@ -465,6 +457,14 @@ constexpr decltype(auto) apply(F &&f, T &&t) {
 
 namespace fct {
 template<class Impl, class... Faces>
+struct typed_facets;
+
+template<class... Faces>
+using facets = typed_facets<void, Faces...>;
+
+using opaque = facets<>;
+
+template<class Impl, class... Faces>
 struct typed_facets {
     using data_type = Impl;
     using vtable_tuple = fct::tuple<vtable_t<Faces> const *...>;
@@ -482,58 +482,53 @@ struct typed_facets {
     // ---- castability ------------------------------------------------------
 
     template<class To>
-    static constexpr bool can_upcast_to = (upcastable_from<To, Faces> || ...);
+    static constexpr bool is_upcastable = (upcastable_from<To, Faces> || ...);
 
     template<class To>
-    static constexpr bool can_dycast_to = dycastable<To>;
+    static constexpr bool is_queryable = queryable<To>;
 
     template<class To>
-    static constexpr bool can_cast_to = can_upcast_to<To> || can_dycast_to<To>;
+    static constexpr bool is_upcastable_or_queryable = is_upcastable<To> || is_queryable<To>;
 
-    template<class Base, class... Tos>
-    static constexpr bool can_convert_to =
-        (std::is_same_v<Impl, Base> || std::is_same_v<Base, void>) &&
-        (can_cast_to<Tos> && ...);
-
-    template<class... Tos>
-    static constexpr bool can_implicitly_convert_to = (can_upcast_to<Tos> && ...);
+    template<class Base>
+    static constexpr bool is_convertible = std::is_same_v<Impl, Base> || std::is_same_v<Base, void>;
 
     // ---- vtable casts -----------------------------------------------------
 
     template<class To>
-        requires(can_upcast_to<To>)
-    constexpr vtable_t<To> const *upcast_vtable() const noexcept {
+        requires(is_upcastable<To>)
+    constexpr vtable_t<To> const *vtable_upcast() const noexcept {
         template for (constexpr std::size_t K : std::views::iota(0uz, sizeof...(Faces))) {
             using Face = Faces...[K];
             if constexpr (upcastable_from<To, Face>) {
-                return vtable_upcast<To, Face>(fct::get<K>(vtables));
+                return vtable_upcast_from<To, Face>(fct::get<K>(vtables));
             }
         }
     }
 
     template<class To>
-        requires(can_dycast_to<To>)
-    constexpr vtable_t<To> const *dycast_vtable() const noexcept {
-        return vtable_dycast<To>(rtti, data);
+        requires(is_queryable<To>)
+    constexpr vtable_t<To> const *vtable_query() const noexcept {
+        return vtable_query_with<To>(rtti, data);
     }
 
     template<class To>
-        requires(can_cast_to<To>)
-    constexpr vtable_t<To> const *cast_vtable() const noexcept {
-        if constexpr (can_upcast_to<To>) {
-            return upcast_vtable<To>();
+        requires(is_upcastable_or_queryable<To>)
+    constexpr vtable_t<To> const *vtable_upcast_or_query() const noexcept {
+        if constexpr (is_upcastable<To>) {
+            return vtable_upcast<To>();
         } else {
-            return dycast_vtable<To>();
+            return vtable_query<To>();
         }
     }
 
     // ---- conversions ------------------------------------------------------
 
     template<class Base, class... Tos>
-        requires(can_convert_to<Base, Tos...> && !std::is_same_v<typed_facets<Base, Tos...>, typed_facets>)
-    explicit(!can_implicitly_convert_to<Tos...>)
+        requires(is_convertible<Base> && (is_upcastable_or_queryable<Tos> && ...) && !std::is_same_v<typed_facets<Base, Tos...>, typed_facets>)
+    explicit(!(is_upcastable<Tos> && ...))
     operator typed_facets<Base, Tos...>() const noexcept {
-        return typed_facets<Base, Tos...>(data, rtti, cast_vtable<Tos>()...);
+        return typed_facets<Base, Tos...>(data, rtti, vtable_upcast_or_query<Tos>()...);
     }
 
     // ---- utilities --------------------------------------------------------
@@ -593,14 +588,14 @@ struct static_policy {
 
     static constexpr type_info rtti = {
         .version = FACET_TYPE_INFO_VERSION,
-        .query_vtable = [](void *, interface_id_t id) -> void const * {
+        .query = [](void *, interface_id_t id) -> void const * {
             template for (constexpr std::meta::info face : detail::type_list_v<Faces...>) {
                 using Face = typename[:face:];
                 template for (constexpr std::meta::info to : detail::interface_closure_v<Face>) {
                     using To = typename[:to:];
                     if constexpr (has_interface_id<To>) {
                         if (interface_id_equal(id, interface_id_v<To>)) {
-                            return vtable_upcast<To, Face>(vtable_ptr<Face>);
+                            return vtable_upcast_from<To, Face>(vtable_ptr<Face>);
                         }
                     }
                 }

@@ -20,6 +20,117 @@
 
 namespace fct {
 namespace detail {
+struct unique_control {
+    void (*destroy)(unique_control *) noexcept;
+};
+
+inline void release(unique_control *control) noexcept {
+    if (control != nullptr) {
+        control->destroy(control);
+    }
+}
+
+template<class Impl>
+struct unique_control_for_def {
+    struct type : unique_control {
+        Impl impl;
+
+        template<class... Args>
+        explicit type(Args &&...args) noexcept : unique_control{.destroy = destroy}, impl(std::forward<Args>(args)...) {}
+
+        static void destroy(unique_control *control) noexcept {
+            delete static_cast<type *>(control);
+        }
+
+        Impl *get_impl() noexcept {
+            return &impl;
+        }
+    };
+};
+
+template<class Impl>
+using unique_control_for = typename unique_control_for_def<Impl>::type;
+}
+
+template<class Impl, class... Faces>
+struct unique_typed_facets;
+
+template<class... Faces>
+using unique_facets = unique_typed_facets<void, Faces...>;
+
+using unique_opaque = unique_facets<>;
+
+template<class Impl, class... Faces>
+struct unique_typed_facets {
+    using handle_type = typed_facets<Impl, Faces...>;
+
+    handle_type handle_;
+    detail::unique_control *control_ = nullptr;
+
+    constexpr unique_typed_facets() noexcept = default;
+
+    unique_typed_facets(handle_type handle, detail::unique_control *control) noexcept : handle_(handle), control_(control) {}
+
+    unique_typed_facets(unique_typed_facets const &) = delete;
+
+    unique_typed_facets(unique_typed_facets &&other) noexcept : handle_(other.handle_), control_(std::exchange(other.control_, nullptr)) {}
+
+    template<class Base, class... Tos>
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...) && !std::is_same_v<unique_typed_facets<Base, Tos...>, unique_typed_facets>)
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
+    operator unique_typed_facets<Base, Tos...>() && noexcept {
+        return unique_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), std::exchange(control_, nullptr));
+    }
+
+    ~unique_typed_facets() {
+        detail::release(control_);
+    }
+
+    void swap(unique_typed_facets &other) noexcept {
+        std::swap(handle_, other.handle_);
+        std::swap(control_, other.control_);
+    }
+
+    unique_typed_facets &operator=(unique_typed_facets other) noexcept {
+        swap(other);
+        return *this;
+    }
+
+    explicit operator bool() const noexcept {
+        return static_cast<bool>(handle_) && control_ != nullptr;
+    }
+
+    auto &operator*() const noexcept {
+        return *handle_;
+    }
+
+    auto *operator->() const noexcept {
+        return handle_.operator->();
+    }
+
+    template<class Face>
+    auto *as() const noexcept {
+        return handle_.template as<Face>();
+    }
+
+    auto *get() const noexcept {
+        return handle_.get();
+    }
+
+    auto handle() const noexcept {
+        return handle_;
+    }
+};
+
+template<class Impl, class... Faces, class... Args>
+auto make_unique(Args &&...args) {
+    auto *control = new detail::unique_control_for<Impl>(std::forward<Args>(args)...);
+    return unique_typed_facets<Impl, Faces...>(as_facets<Faces...>(control->get_impl()), control);
+}
+}
+
+namespace fct {
+namespace detail {
 using ref_count_t = std::uint32_t;
 
 struct shared_control {
@@ -67,8 +178,18 @@ using shared_control_for = typename shared_control_for_def<Impl>::type;
 template<class Impl, class... Faces>
 struct borrowed_typed_facets;
 
+template<class... Faces>
+using borrowed_facets = borrowed_typed_facets<void, Faces...>;
+
+using borrowed_opaque = borrowed_facets<>;
+
 template<class Impl, class... Faces>
 struct shared_typed_facets;
+
+template<class... Faces>
+using shared_facets = shared_typed_facets<void, Faces...>;
+
+using shared_opaque = shared_facets<>;
 
 template<class Impl, class... Faces>
 struct borrowed_typed_facets {
@@ -82,15 +203,15 @@ struct borrowed_typed_facets {
     borrowed_typed_facets(handle_type handle, detail::shared_control *control) noexcept : handle_(handle), control_(control) {}
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<borrowed_typed_facets<Base, Tos...>, borrowed_typed_facets>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...) && !std::is_same_v<borrowed_typed_facets<Base, Tos...>, borrowed_typed_facets>)
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
     operator borrowed_typed_facets<Base, Tos...>() const & noexcept {
         return borrowed_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
     }
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...))
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
     operator shared_typed_facets<Base, Tos...>() const & noexcept {
         return shared_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), detail::add_ref(control_));
     }
@@ -137,22 +258,22 @@ struct shared_typed_facets {
     shared_typed_facets(shared_typed_facets &&other) noexcept : handle_(other.handle_), control_(std::exchange(other.control_, nullptr)) {}
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<shared_typed_facets<Base, Tos...>, shared_typed_facets>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...) && !std::is_same_v<shared_typed_facets<Base, Tos...>, shared_typed_facets>)
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
     operator shared_typed_facets<Base, Tos...>() const & noexcept {
         return shared_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), detail::add_ref(control_));
     }
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<shared_typed_facets<Base, Tos...>, shared_typed_facets>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...) && !std::is_same_v<shared_typed_facets<Base, Tos...>, shared_typed_facets>)
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
     operator shared_typed_facets<Base, Tos...>() && noexcept {
         return shared_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), std::exchange(control_, nullptr));
     }
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
+        requires(handle_type::template is_convertible<Base> && (handle_type::template is_upcastable_or_queryable<Tos> && ...))
+    explicit(!(handle_type::template is_upcastable<Tos> && ...))
     operator borrowed_typed_facets<Base, Tos...>() const & noexcept {
         return borrowed_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
     }
@@ -196,16 +317,6 @@ struct shared_typed_facets {
         return handle_;
     }
 };
-
-template<class... Faces>
-using borrowed_facets = borrowed_typed_facets<void, Faces...>;
-
-using borrowed_opaque = borrowed_facets<>;
-
-template<class... Faces>
-using shared_facets = shared_typed_facets<void, Faces...>;
-
-using shared_opaque = shared_facets<>;
 
 template<class Impl, class... Faces, class... Args>
 auto make_shared(Args &&...args) {
@@ -257,113 +368,5 @@ template<class Impl, class... Faces>
     requires(std::derived_from<Impl, enable_shared_from_self<Impl>>)
 auto shared_from(typed_facets<Impl, Faces...> handle) {
     return shared_typed_facets<Impl, Faces...>(handle, detail::add_ref(handle.get()->get_control()));
-}
-}
-
-namespace fct {
-namespace detail {
-struct unique_control {
-    void (*destroy)(unique_control *) noexcept;
-};
-
-inline void release(unique_control *control) noexcept {
-    if (control != nullptr) {
-        control->destroy(control);
-    }
-}
-
-template<class Impl>
-struct unique_control_for_def {
-    struct type : unique_control {
-        Impl impl;
-
-        template<class... Args>
-        explicit type(Args &&...args) noexcept : unique_control{.destroy = destroy}, impl(std::forward<Args>(args)...) {}
-
-        static void destroy(unique_control *control) noexcept {
-            delete static_cast<type *>(control);
-        }
-
-        Impl *get_impl() noexcept {
-            return &impl;
-        }
-    };
-};
-
-template<class Impl>
-using unique_control_for = typename unique_control_for_def<Impl>::type;
-}
-
-template<class Impl, class... Faces>
-struct unique_typed_facets {
-    using handle_type = typed_facets<Impl, Faces...>;
-
-    handle_type handle_;
-    detail::unique_control *control_ = nullptr;
-
-    constexpr unique_typed_facets() noexcept = default;
-
-    unique_typed_facets(handle_type handle, detail::unique_control *control) noexcept : handle_(handle), control_(control) {}
-
-    unique_typed_facets(unique_typed_facets const &) = delete;
-
-    unique_typed_facets(unique_typed_facets &&other) noexcept : handle_(other.handle_), control_(std::exchange(other.control_, nullptr)) {}
-
-    template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<unique_typed_facets<Base, Tos...>, unique_typed_facets>)
-    explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
-    operator unique_typed_facets<Base, Tos...>() && noexcept {
-        return unique_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), std::exchange(control_, nullptr));
-    }
-
-    ~unique_typed_facets() {
-        detail::release(control_);
-    }
-
-    void swap(unique_typed_facets &other) noexcept {
-        std::swap(handle_, other.handle_);
-        std::swap(control_, other.control_);
-    }
-
-    unique_typed_facets &operator=(unique_typed_facets other) noexcept {
-        swap(other);
-        return *this;
-    }
-
-    explicit operator bool() const noexcept {
-        return static_cast<bool>(handle_) && control_ != nullptr;
-    }
-
-    auto &operator*() const noexcept {
-        return *handle_;
-    }
-
-    auto *operator->() const noexcept {
-        return handle_.operator->();
-    }
-
-    template<class Face>
-    auto *as() const noexcept {
-        return handle_.template as<Face>();
-    }
-
-    auto *get() const noexcept {
-        return handle_.get();
-    }
-
-    auto handle() const noexcept {
-        return handle_;
-    }
-};
-
-template<class... Faces>
-using unique_facets = unique_typed_facets<void, Faces...>;
-
-using unique_opaque = unique_facets<>;
-
-template<class Impl, class... Faces, class... Args>
-auto make_unique(Args &&...args) {
-    auto *control = new detail::unique_control_for<Impl>(std::forward<Args>(args)...);
-    return unique_typed_facets<Impl, Faces...>(as_facets<Faces...>(control->get_impl()), control);
 }
 }
