@@ -45,23 +45,23 @@ consteval since_t since(interface_version_t version, Fallback fallback) {
     return {version, std::meta::reflect_constant(fallback)};
 }
 
-// [[=adaptor(func)]] specifies the adaptor function used to invoke the method in the
-// generated function table.
-struct adaptor_t {
-    std::meta::info adaptor;
+// [[=adapter(func)]] specifies the adapter function used to invoke the
+// method in the generated function table.
+struct adapter_t {
+    std::meta::info adapter;
 };
 
-template<class Adaptor>
-consteval adaptor_t adaptor(Adaptor adaptor) {
-    return {std::meta::reflect_constant(adaptor)};
+template<class Adapter>
+consteval adapter_t adapter(Adapter adapter) {
+    return {std::meta::reflect_constant(adapter)};
 }
 
 namespace detail {
-template<class I>
-concept is_spec = !meta::annotations_of_with_type(^^I, ^^spec_t).empty();
+template<class Face>
+concept is_spec = !meta::annotations_of_with_type(^^Face, ^^spec_t).empty();
 
-inline consteval interface_version_t get_interface_version(meta::info I) {
-    auto annotations = meta::annotations_of_with_type(I, ^^version_t);
+inline consteval interface_version_t get_interface_version(meta::info face) {
+    auto annotations = meta::annotations_of_with_type(face, ^^version_t);
     return annotations.empty() ? 0 : meta::extract<version_t>(annotations[0]).value;
 }
 
@@ -70,9 +70,9 @@ inline consteval since_t get_method_since(meta::info method) {
     return annotations.empty() ? since_t{} : meta::extract<since_t>(annotations[0]);
 }
 
-inline consteval meta::info get_method_adaptor(meta::info method) {
-    auto annotations = meta::annotations_of_with_type(method, ^^adaptor_t);
-    return annotations.empty() ? meta::info{} : meta::extract<adaptor_t>(annotations[0]).adaptor;
+inline consteval meta::info get_method_adapter(meta::info method) {
+    auto annotations = meta::annotations_of_with_type(method, ^^adapter_t);
+    return annotations.empty() ? meta::info{} : meta::extract<adapter_t>(annotations[0]).adapter;
 }
 
 template<class R, class... A>
@@ -135,13 +135,13 @@ static constexpr std::span<meta::info const> member_candidates_v = [] {
     return std::define_static_array(out);
 }();
 
-template<class I>
+template<class Face>
 struct from_spec_def {
-    using facets_type = facets<I>;
+    using facets_type = facets<Face>;
 
     struct vtable_type;
 
-    static constexpr interface_version_t interface_version = get_interface_version(^^I);
+    static constexpr interface_version_t interface_version = get_interface_version(^^Face);
 
     enum class field_kind {
         base,
@@ -154,14 +154,14 @@ struct from_spec_def {
     };
 
     static constexpr std::span<field_descriptor const> field_descriptors = [] {
-        if (!meta::is_class_type(^^I)) {
+        if (!meta::is_class_type(^^Face)) {
             compile_time_error("facet: interface spec must be a class type");
         }
         std::vector<field_descriptor> result;
-        for (meta::info base : meta::bases_of(^^I, all_ctx())) {
+        for (meta::info base : meta::bases_of(^^Face, all_ctx())) {
             result.emplace_back(field_kind::base, base);
         }
-        for (meta::info member : meta::members_of(^^I, all_ctx())) {
+        for (meta::info member : meta::members_of(^^Face, all_ctx())) {
             if (meta::is_special_member_function(member)) {
                 continue;
             }
@@ -308,7 +308,7 @@ struct from_spec_def {
 
     template<class Impl>
     struct vtable_implements {
-        using typed_facets_type = typed_facets<Impl, I>;
+        using typed_facets_type = typed_facets<Impl, Face>;
 
         template<meta::info Base,
                  class Type = typename[:meta::type_of(Base):]>
@@ -336,7 +336,7 @@ struct from_spec_def {
                 requires requires(typed_facets_type typed_self, A... args) {
                     { [:Candidate:](typed_self, std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            static constexpr auto static_invoke_adaptor = [](typed_facets_type typed_self, A... args) -> R {
+            static constexpr auto static_invoke_adapter = [](typed_facets_type typed_self, A... args) -> R {
                 return [:Candidate:](typed_self, std::forward<A>(args)...);
             };
 
@@ -365,7 +365,7 @@ struct from_spec_def {
                 requires requires(typed_facets_type typed_self, A... args) {
                     { typed_self.get()->[:Candidate:](std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
-            static constexpr auto member_invoke_adaptor = [](typed_facets_type typed_self, A... args) -> R {
+            static constexpr auto member_invoke_adapter = [](typed_facets_type typed_self, A... args) -> R {
                 return typed_self.get()->[:Candidate:](std::forward<A>(args)...);
             };
 
@@ -384,10 +384,10 @@ struct from_spec_def {
                 return i == candidate_params.size() && j == method_params.size();
             }
 
-            static constexpr meta::info adaptor = [] -> meta::info {
-                auto method_adaptor = get_method_adaptor(Method);
-                if (method_adaptor != meta::info{}) {
-                    return method_adaptor;
+            static constexpr meta::info adapter = [] -> meta::info {
+                auto method_adapter = get_method_adapter(Method);
+                if (method_adapter != meta::info{}) {
+                    return method_adapter;
                 }
                 std::vector<meta::info> exact_static_matches;
                 std::vector<meta::info> exact_member_matches;
@@ -395,24 +395,24 @@ struct from_spec_def {
                 std::vector<meta::info> member_matches;
                 for (meta::info candidate : static_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
-                        if (meta::can_substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)})) {
-                            auto adaptor = meta::substitute(^^static_invoke_adaptor, {meta::reflect_constant(candidate)});
+                        if (meta::can_substitute(^^static_invoke_adapter, {meta::reflect_constant(candidate)})) {
+                            auto adapter = meta::substitute(^^static_invoke_adapter, {meta::reflect_constant(candidate)});
                             if (is_static_exact(candidate)) {
-                                exact_static_matches.push_back(adaptor);
+                                exact_static_matches.push_back(adapter);
                             } else {
-                                static_matches.push_back(adaptor);
+                                static_matches.push_back(adapter);
                             }
                         }
                     }
                 }
                 for (meta::info candidate : member_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
-                        if (meta::can_substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)})) {
-                            auto adaptor = meta::substitute(^^member_invoke_adaptor, {meta::reflect_constant(candidate)});
+                        if (meta::can_substitute(^^member_invoke_adapter, {meta::reflect_constant(candidate)})) {
+                            auto adapter = meta::substitute(^^member_invoke_adapter, {meta::reflect_constant(candidate)});
                             if (is_member_exact(candidate)) {
-                                exact_member_matches.push_back(adaptor);
+                                exact_member_matches.push_back(adapter);
                             } else {
-                                member_matches.push_back(adaptor);
+                                member_matches.push_back(adapter);
                             }
                         }
                     }
@@ -433,10 +433,10 @@ struct from_spec_def {
             }();
 
             static R call(facets_type self, A... args)
-                requires(adaptor != meta::info{})
+                requires(adapter != meta::info{})
             {
                 typed_facets_type typed_self(static_cast<Impl *>(self.data), self.rtti, self.vtables);
-                return [:adaptor:](typed_self, std::forward<A>(args)...);
+                return [:adapter:](typed_self, std::forward<A>(args)...);
             }
         };
 
@@ -494,24 +494,24 @@ struct from_spec_def {
 };
 }
 
-template<detail::is_spec I>
-struct direct_methods<I> {
-    static constexpr auto const &value = detail::from_spec_def<I>::direct_members.methods;
+template<detail::is_spec Face>
+struct direct_methods<Face> {
+    static constexpr auto const &value = detail::from_spec_def<Face>::direct_members.methods;
 };
 
-template<detail::is_spec I>
-struct direct_bases<I> {
-    static constexpr auto const &value = detail::from_spec_def<I>::direct_members.bases;
+template<detail::is_spec Face>
+struct direct_bases<Face> {
+    static constexpr auto const &value = detail::from_spec_def<Face>::direct_members.bases;
 };
 
-template<detail::is_spec I>
-struct vtable<I> {
-    using type = typename detail::from_spec_def<I>::vtable_type;
+template<detail::is_spec Face>
+struct vtable<Face> {
+    using type = typename detail::from_spec_def<Face>::vtable_type;
 };
 
-template<class Impl, detail::is_spec I>
-    requires(detail::from_spec_def<I>::template vtable_implements<Impl>::has_value)
-struct vtable_implements<Impl, I> {
-    static constexpr vtable_t<I> const *value = detail::from_spec_def<I>::template vtable_implements<Impl>::value;
+template<class Impl, detail::is_spec Face>
+    requires(detail::from_spec_def<Face>::template vtable_implements<Impl>::has_value)
+struct vtable_implements<Impl, Face> {
+    static constexpr vtable_t<Face> const *value = detail::from_spec_def<Face>::template vtable_implements<Impl>::value;
 };
 }

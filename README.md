@@ -30,7 +30,7 @@ $env:CXX = "C:\path\to\compiler.exe"
 | Header | Purpose |
 | --- | --- |
 | [`<facet.hpp>`](./include/facet.hpp) | Core handles, interface protocol types, generated facade dispatch, conversions, implementation lookup, and the `local_id` and `uuid` interface-ID annotations |
-| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Reflection-generated protocol and the `spec`, `version`, `since`, and `adaptor` annotations |
+| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Reflection-generated protocol and the `spec`, `version`, `since`, and `adapter` annotations |
 | [`<facet/memory.hpp>`](./include/facet/memory.hpp) | Shared and unique ownership wrappers and factories; includes `<facet.hpp>` |
 
 ## Quick start
@@ -211,11 +211,11 @@ Each candidate's result must be convertible to the interface method's result. Co
 
 If Facet finds no suitable candidate for an interface method, instantiating that implementation's function table fails at compile time.
 
-To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adaptor`. The adaptor is called with an `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adaptor takes precedence over automatic lookup:
+To bind a method differently from the automatic name-and-signature lookup, annotate that interface method with `fct::adapter`. The adapter is called with an `typed_facets<Implementation, Interface>` followed by the interface method's arguments, and its result must be convertible to the interface method's return type. An annotated adapter takes precedence over automatic lookup:
 
 ```cpp
 struct [[= fct::spec]] IDerived {
-    [[= fct::adaptor([](auto self) {
+    [[= fct::adapter([](auto self) {
         return self.get()->impl_derived();
     })]]
     int derived() const;

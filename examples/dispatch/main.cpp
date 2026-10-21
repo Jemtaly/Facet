@@ -131,7 +131,7 @@ void test_implementation_priority() {
 }
 
 struct[[= fct::spec]] ICustom {
-    [[= fct::adaptor([](auto impl) {
+    [[= fct::adapter([](auto impl) {
         if constexpr (requires { impl.get()->custom(); }) {
             return impl.get()->custom();
         } else {
@@ -152,7 +152,7 @@ struct FallbackModel {
     }
 };
 
-void test_custom_adaptor() {
+void test_custom_adapter() {
     CustomModel custom_model;
     FallbackModel fallback_model;
 
