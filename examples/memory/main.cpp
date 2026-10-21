@@ -36,8 +36,8 @@ void test_tracked_lifetime() {
         {
             auto copy = shared;
             assert(copy->count() == 42);
-            fct::weak_facets<ICounter> view = copy;
-            fct::shared_facets<ICounter> retained{view};
+            fct::borrowed_facets<ICounter> view = copy;
+            fct::shared_facets<ICounter> retained = view;
             assert(retained->count() == 42);
         }
         assert(Tracked::alive == 1);
@@ -64,8 +64,8 @@ void test_tracked_lifetime() {
 
     {
         Tracked stack_object;
-        auto borrowed = fct::as_facets<ICounter>(&stack_object);
-        assert(borrowed->count() == 42);
+        auto ref = fct::as_facets<ICounter>(&stack_object);
+        assert(ref->count() == 42);
     }
     assert(Tracked::alive == 0);
     assert(Tracked::destroyed == 3);
@@ -75,7 +75,7 @@ struct[[= fct::spec]] IRecoverable {
     fct::shared_facets<IRecoverable> retain() const;
 };
 
-struct Recoverable : fct::enable_shared_from_this<Recoverable> {
+struct Recoverable : fct::enable_shared_from_self<Recoverable> {
     static inline int alive = 0;
     static inline int destroyed = 0;
 
@@ -89,7 +89,7 @@ struct Recoverable : fct::enable_shared_from_this<Recoverable> {
     }
 
     static fct::shared_facets<IRecoverable> retain(fct::typed_facets<Recoverable, IRecoverable> self) {
-        return fct::retain_shared(self);
+        return fct::shared_from(self);
     }
 };
 

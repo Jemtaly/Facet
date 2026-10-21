@@ -340,10 +340,10 @@ Include `<facet/memory.hpp>` for owning wrappers. The library provides `make_sha
 | --- | --- |
 | `make_shared<Impl, I...>(args...)` | Reference-counted ownership |
 | `shared_facets<I...>` | Shared, type-erased ownership |
-| `weak_facets<I...>` | Non-owning view of a shared object; does not extend its lifetime |
+| `borrowed_facets<I...>` | Non-owning view of a shared object; does not extend its lifetime |
 | `make_unique<Impl, I...>(args...)` | Unique ownership |
 | `unique_facets<I...>` | Unique, type-erased ownership |
-| `weak_opaque`, `shared_opaque`, `unique_opaque` | The respective type-erased wrappers with no exposed interface methods |
+| `borrowed_opaque`, `shared_opaque`, `unique_opaque` | The respective type-erased wrappers with no exposed interface methods |
 
 ```cpp
 #include <facet/memory.hpp>
@@ -359,7 +359,7 @@ struct Counter {
 };
 
 auto shared = fct::make_shared<Counter, ICounter>();
-fct::weak_facets<ICounter> view = shared;
+fct::borrowed_facets<ICounter> view = shared;
 fct::shared_facets<ICounter> retained = view;
 
 assert(retained->count() == 42);
@@ -373,20 +373,20 @@ fct::unique_facets<ICounter> owner = std::move(unique);
 assert(owner->count() == 42);
 ```
 
-`weak_facets` is a borrowing view, not an expiring `std::weak_ptr`-like observer. It does not keep the shared control block or implementation alive. Keep a `shared_typed_facets` or `shared_facets` owner alive while accessing a weak view or converting it back to a shared holder; otherwise the view dangles.
+`borrowed_facets` is a borrowing view, not an expiring `std::weak_ptr`-like observer. It does not keep the shared control block or implementation alive. Keep a `shared_typed_facets` or `shared_facets` owner alive while accessing a borrowed view or converting it back to a shared holder; otherwise the view dangles.
 
 #### Return shared ownership from an implementation
 
-Derive a shared implementation from `fct::enable_shared_from_this<Impl>` when one of its operations must return a shared reference to itself. Construct that implementation with `make_shared`; the factory initializes the control-block link required by `retain_shared` and `retain_weak`. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle and calls `fct::retain_shared`.
+Derive a shared implementation from `fct::enable_shared_from_self<Impl>` when one of its operations must return a shared reference to itself. Construct that implementation with `make_shared`; the factory initializes the control-block link required by `shared_from` and `borrowed_from`. This is commonly expressed as a static interface-aware implementation function: it receives the typed object handle and calls `fct::shared_from`.
 
 ```cpp
 struct [[= fct::spec]] ISelf {
     fct::shared_facets<ISelf> self() const;
 };
 
-struct SharedObject : fct::enable_shared_from_this<SharedObject> {
+struct SharedObject : fct::enable_shared_from_self<SharedObject> {
     static fct::shared_facets<ISelf> self(fct::typed_facets<SharedObject, ISelf> self) {
-        return fct::retain_shared(self);
+        return fct::shared_from(self);
     }
 };
 
@@ -394,7 +394,7 @@ auto object = fct::make_shared<SharedObject, ISelf>();
 fct::shared_facets<ISelf> retained = object->self();
 ```
 
-Both `retain_shared` and `retain_weak` require an `typed_facets<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_this<Impl>`. `retain_shared` increments the shared control block's reference count. `retain_weak` returns a `weak_typed_facets`; converting that view to `shared_facets` also increments the reference count, provided a shared owner is still alive. Do not use either function for borrowed objects or objects owned by `make_unique`.
+Both `shared_from` and `borrowed_from` require an `typed_facets<Impl, I...>` for an object created by `make_shared` and an implementation derived from `enable_shared_from_self<Impl>`. `shared_from` increments the shared control block's reference count. `borrowed_from` returns a `borrowed_typed_facets`; converting that view to `shared_facets` also increments the reference count, provided a shared owner is still alive. Do not use either function for borrowed objects or objects owned by `make_unique`.
 
 ### 7. Cross a dynamic-library boundary
 

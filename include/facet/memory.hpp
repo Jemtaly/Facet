@@ -13,9 +13,9 @@
 // ============================================================================
 // Ownership wrappers
 //
-// weak_typed_facets is non-owning, shared_typed_facets shares ownership, and
-// unique_typed_facets uniquely owns its implementation. The interface aliases
-// expose these same wrappers without an implementation type.
+// borrowed_typed_facets is non-owning, shared_typed_facets shares ownership,
+// and unique_typed_facets uniquely owns its implementation. The interface and
+// opaque aliases expose these same wrappers without an implementation type.
 // ============================================================================
 
 namespace fct {
@@ -65,27 +65,27 @@ using shared_control_for = typename shared_control_for_def<Impl>::type;
 }
 
 template<class Impl, class... Faces>
-struct weak_typed_facets;
+struct borrowed_typed_facets;
 
 template<class Impl, class... Faces>
 struct shared_typed_facets;
 
 template<class Impl, class... Faces>
-struct weak_typed_facets {
+struct borrowed_typed_facets {
     using handle_type = typed_facets<Impl, Faces...>;
 
     handle_type handle_;
     detail::shared_control *control_ = nullptr;
 
-    constexpr weak_typed_facets() noexcept = default;
+    constexpr borrowed_typed_facets() noexcept = default;
 
-    weak_typed_facets(handle_type handle, detail::shared_control *control) noexcept : handle_(handle), control_(control) {}
+    borrowed_typed_facets(handle_type handle, detail::shared_control *control) noexcept : handle_(handle), control_(control) {}
 
     template<class Base, class... Tos>
-        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<weak_typed_facets<Base, Tos...>, weak_typed_facets>)
+        requires(handle_type::template can_convert_to<Base, Tos...> && !std::is_same_v<borrowed_typed_facets<Base, Tos...>, borrowed_typed_facets>)
     explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
-    operator weak_typed_facets<Base, Tos...>() const & noexcept {
-        return weak_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
+    operator borrowed_typed_facets<Base, Tos...>() const & noexcept {
+        return borrowed_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
     }
 
     template<class Base, class... Tos>
@@ -116,7 +116,7 @@ struct weak_typed_facets {
         return handle_.get();
     }
 
-    auto get_handle() const noexcept {
+    auto handle() const noexcept {
         return handle_;
     }
 };
@@ -153,8 +153,8 @@ struct shared_typed_facets {
     template<class Base, class... Tos>
         requires(handle_type::template can_convert_to<Base, Tos...>)
     explicit(!handle_type::template can_implicitly_convert_to<Tos...>)
-    operator weak_typed_facets<Base, Tos...>() const & noexcept {
-        return weak_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
+    operator borrowed_typed_facets<Base, Tos...>() const & noexcept {
+        return borrowed_typed_facets<Base, Tos...>(typed_facets<Base, Tos...>(handle_), control_);
     }
 
     ~shared_typed_facets() {
@@ -192,15 +192,15 @@ struct shared_typed_facets {
         return handle_.get();
     }
 
-    auto get_handle() const noexcept {
+    auto handle() const noexcept {
         return handle_;
     }
 };
 
 template<class... Faces>
-using weak_facets = weak_typed_facets<void, Faces...>;
+using borrowed_facets = borrowed_typed_facets<void, Faces...>;
 
-using weak_opaque = weak_facets<>;
+using borrowed_opaque = borrowed_facets<>;
 
 template<class... Faces>
 using shared_facets = shared_typed_facets<void, Faces...>;
@@ -214,10 +214,10 @@ auto make_shared(Args &&...args) {
 }
 
 template<class Self>
-struct enable_shared_from_this {
+struct enable_shared_from_self {
     detail::shared_control *control_ = nullptr;
 
-    enable_shared_from_this() = default;
+    enable_shared_from_self() = default;
 
     detail::shared_control *get_control() noexcept {
         return control_;
@@ -226,7 +226,7 @@ struct enable_shared_from_this {
 
 namespace detail {
 template<class Impl>
-    requires(std::derived_from<Impl, enable_shared_from_this<Impl>>)
+    requires(std::derived_from<Impl, enable_shared_from_self<Impl>>)
 struct shared_control_for_def<Impl> {
     struct type : shared_control {
         Impl impl;
@@ -248,13 +248,14 @@ struct shared_control_for_def<Impl> {
 }
 
 template<class Impl, class... Faces>
-    requires(std::derived_from<Impl, enable_shared_from_this<Impl>>)
-auto retain_weak(typed_facets<Impl, Faces...> handle) {
-    return weak_typed_facets<Impl, Faces...>(handle, handle.get()->get_control());
+    requires(std::derived_from<Impl, enable_shared_from_self<Impl>>)
+auto borrowed_from(typed_facets<Impl, Faces...> handle) {
+    return borrowed_typed_facets<Impl, Faces...>(handle, handle.get()->get_control());
 }
 
 template<class Impl, class... Faces>
-auto retain_shared(typed_facets<Impl, Faces...> handle) {
+    requires(std::derived_from<Impl, enable_shared_from_self<Impl>>)
+auto shared_from(typed_facets<Impl, Faces...> handle) {
     return shared_typed_facets<Impl, Faces...>(handle, detail::add_ref(handle.get()->get_control()));
 }
 }
@@ -350,7 +351,7 @@ struct unique_typed_facets {
         return handle_.get();
     }
 
-    auto get_handle() const noexcept {
+    auto handle() const noexcept {
         return handle_;
     }
 };
