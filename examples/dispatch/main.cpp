@@ -131,8 +131,17 @@ void test_implementation_priority() {
 }
 
 struct[[= fct::spec]] IShippingQuote {
-    [[= fct::adapter([](auto self, double weight_grams) -> double {
-        if constexpr (requires { self.get()->quote_cents_per_gram(weight_grams); }) {
+    [[= fct::adapter([](auto self, double weight_grams) -> double requires(
+        requires {
+            { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
+        } ||
+        requires {
+            { self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100 } -> std::convertible_to<double>;
+        }
+    ) {
+        if constexpr (requires {
+            { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
+        }) {
             return self.get()->quote_cents_per_gram(weight_grams);
         } else {
             return self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
@@ -153,6 +162,8 @@ struct DollarRateService {
     }
 };
 
+struct InvalidRateService {};
+
 void test_shipping_quote_adapter() {
     CentRateService cent_rate_service;
     auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
@@ -161,6 +172,8 @@ void test_shipping_quote_adapter() {
     DollarRateService dollar_rate_service;
     auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
     assert(dollar_quote->quote_cents_per_gram(2000) == 250);
+
+    static_assert(!fct::implements<InvalidRateService, IShippingQuote>);
 }
 
 int main() {

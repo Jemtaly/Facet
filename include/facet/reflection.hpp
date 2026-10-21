@@ -454,7 +454,9 @@ struct from_spec_def {
             }();
 
             static R call(facets_type self, A... args)
-                requires(adapter != meta::info{})
+                requires(adapter != meta::info{}) && requires(typed_facets_type typed_self, A... args) {
+                    [:adapter:](typed_self, std::forward<A>(args)...);
+                }
             {
                 typed_facets_type typed_self(static_cast<Impl *>(self.data), self.rtti, self.vtables);
                 return [:adapter:](typed_self, std::forward<A>(args)...);
