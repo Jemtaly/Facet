@@ -96,7 +96,7 @@ struct direct_methods<IManualCounter> {
 };
 
 template<typename Impl>
-struct vtable_implements<Impl, IManualRoot> {
+struct vtable_for<Impl, IManualRoot> {
     static int root_value(void *data) {
         return static_cast<Impl *>(data)->value;
     }
@@ -111,7 +111,7 @@ struct vtable_implements<Impl, IManualRoot> {
 };
 
 template<typename Impl>
-struct vtable_implements<Impl, IManualReader> {
+struct vtable_for<Impl, IManualReader> {
     static int read(void *data) {
         return static_cast<Impl *>(data)->value;
     }
@@ -121,13 +121,13 @@ struct vtable_implements<Impl, IManualReader> {
     };
     static constexpr vtable_t<IManualReader> table{
         .self = &dispatch,
-        .root = vtable_implements<Impl, IManualRoot>::table,
+        .root = vtable_for<Impl, IManualRoot>::table,
     };
     static constexpr vtable_t<IManualReader> const *value = &table;
 };
 
 template<typename Impl>
-struct vtable_implements<Impl, IManualCounter> {
+struct vtable_for<Impl, IManualCounter> {
     static int count(void *data) {
         return static_cast<Impl *>(data)->value;
     }
@@ -137,7 +137,7 @@ struct vtable_implements<Impl, IManualCounter> {
     };
     static constexpr vtable_t<IManualCounter> table{
         .self = &dispatch,
-        .reader = vtable_implements<Impl, IManualReader>::table,
+        .reader = vtable_for<Impl, IManualReader>::table,
     };
     static constexpr vtable_t<IManualCounter> const *value = &table;
 };
@@ -193,7 +193,7 @@ struct direct_methods<IManualValue<T>> {
 };
 
 template<typename Impl, typename T>
-struct vtable_implements<Impl, IManualValue<T>> {
+struct vtable_for<Impl, IManualValue<T>> {
     static T invoke(void *data) {
         return static_cast<Impl *>(data)->value;
     }
@@ -252,7 +252,7 @@ struct direct_bases<IManualBase> {
 };
 
 template<typename Impl>
-struct vtable_implements<Impl, IManualBase> {
+struct vtable_for<Impl, IManualBase> {
     static int base(void *data) {
         return static_cast<Impl *>(data)->base();
     }

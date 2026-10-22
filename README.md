@@ -129,10 +129,10 @@ erased->reset();
 
 `fct::as_facets<I...>(pointer)` returns a `typed_facets` that exposes the listed interfaces. `fct::facets<I...>` is its type-erased alias. A handle is nullable, supports `operator bool`, and is non-owning: use it for objects owned elsewhere, including stack objects, and do not access it after the original object is destroyed.
 
-You can use `fct::implements<Implementation, Interface>` to verify the same compatibility at compile time:
+You can use `fct::has_vtable_for<Implementation, Interface>` to verify the same compatibility at compile time:
 
 ```cpp
-static_assert(fct::implements<Counter, ICounter>);
+static_assert(fct::has_vtable_for<Counter, ICounter>);
 ```
 
 An implementation can expose more than one interface in a single handle:
@@ -454,7 +454,7 @@ Reflection is the preferred path for ordinary C++ interface declarations. When t
 2. `vtable<I>` defines `type`, the function-table type for `I`. Its layout is application-defined.
 3. `direct_bases<I>` exposes `value`, a `std::array` or span of `direct_base_t` entries. Each `direct_base<Base>(converter)` records a direct base and a converter from `vtable_t<I> const*` to `vtable_t<Base> const*`.
 4. `direct_methods<I>` exposes `value`, a `std::array` or span of `direct_method_t` entries. Each `direct_method(name, invoker)` maps a method name to an invoker callable with `facets<I>` followed by that method's arguments.
-5. `vtable_implements<Impl, I>` defines `static constexpr vtable_t<I> const* value`, the table used when `Impl` is adapted as `I`.
+5. `vtable_for<Impl, I>` defines `static constexpr vtable_t<I> const* value`, the table used when `Impl` is adapted as `I`.
 
 The protocol is what powers the reflective path as well: base metadata determines hierarchy conversions, method metadata builds the call facade, interface identifiers enable runtime lookup, and implementation tables select the actual dispatch targets. All table pointers, base converters, and invokers must remain valid for the lifetime of every handle that refers to them. Prefer static-storage tables and keep the method names and invoker signatures consistent with the interface facade.
 
@@ -473,7 +473,7 @@ struct interface_id<IManualValue<T>> {
 }
 ```
 
-`std::meta::display_string_of` distinguishes template specializations, so a runtime query can find `IManualValue<int>` while rejecting `IManualValue<double>` for the same object. Its spelling is compiler-defined; use an explicit, stable ID instead when interfaces cross a dynamic-library, compiler, or independently versioned build boundary. Provide the corresponding partial specializations of `vtable`, `direct_bases`, `direct_methods`, and `vtable_implements`.
+`std::meta::display_string_of` distinguishes template specializations, so a runtime query can find `IManualValue<int>` while rejecting `IManualValue<double>` for the same object. Its spelling is compiler-defined; use an explicit, stable ID instead when interfaces cross a dynamic-library, compiler, or independently versioned build boundary. Provide the corresponding partial specializations of `vtable`, `direct_bases`, `direct_methods`, and `vtable_for`.
 
 An `typed_facets` stores its vtable pointers in `fct::tuple`, which is an ABI-stable version of `std::tuple`; use `fct::get<I>(handle.vtables)` or `fct::apply` to access them rather than `std::get` or `std::apply`.
 

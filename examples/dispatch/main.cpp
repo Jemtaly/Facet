@@ -173,7 +173,7 @@ void test_shipping_quote_dispatcher() {
     auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
     assert(dollar_quote->quote_cents_per_gram(2000) == 250);
 
-    static_assert(!fct::implements<InvalidRateService, IShippingQuote>);
+    static_assert(!fct::has_vtable_for<InvalidRateService, IShippingQuote>);
 }
 
 int main() {

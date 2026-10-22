@@ -245,16 +245,16 @@ struct from_spec_def {
         meta::define_aggregate(^^vtable_type, members);
     }
 
-    static constexpr std::span<meta::info const> fields_in_vtable = all_data_members_v<vtable_type>.subspan(1);
+    static constexpr std::span<meta::info const> vtable_members = all_data_members_v<vtable_type>.subspan(1);
 
-    template<auto... Values>
-    static constexpr vtable_type value_with = {
+    template<auto... Members>
+    static constexpr vtable_type content_with = {
         interface_version,
-        Values...,
+        Members...,
     };
 
-    template<auto... Values>
-    static constexpr vtable_type const *pointer_with = &value_with<Values...>;
+    template<auto... Members>
+    static constexpr vtable_type const *value_with = &content_with<Members...>;
 
     template<meta::info Base, meta::info Member,
              class Type = typename[:meta::type_of(Base):]>
@@ -296,7 +296,7 @@ struct from_spec_def {
     static constexpr direct_members_t direct_members = [] {
         std::vector<direct_base_t> bases;
         std::vector<direct_method_t> methods;
-        for (auto [desc, member] : std::views::zip(field_descriptors, fields_in_vtable)) {
+        for (auto [desc, member] : std::views::zip(field_descriptors, vtable_members)) {
             if (desc.kind == field_kind::base) {
                 bases.emplace_back(
                     meta::type_of(desc.spec),
@@ -325,14 +325,14 @@ struct from_spec_def {
     }();
 
     template<class Impl>
-    struct vtable_implements {
+    struct vtable_for {
         using typed_facets_type = typed_facets<Impl, Face>;
 
         template<meta::info Base,
                  class Type = typename[:meta::type_of(Base):]>
-            requires(implements<Impl, Type>)
+            requires(has_vtable_for<Impl, Type>)
         struct base_pointer {
-            static constexpr vtable_t<Type> const *value = vtable_implements_v<Impl, Type>;
+            static constexpr vtable_t<Type> const *value = vtable_for_v<Impl, Type>;
         };
 
         template<meta::info Base>
@@ -511,11 +511,16 @@ struct from_spec_def {
                             }));
                 }
             }
-            return meta::extract<vtable_type const *>(meta::substitute(^^pointer_with, members));
+            return meta::extract<vtable_type const *>(meta::substitute(^^value_with, members));
         }();
     };
 };
 }
+
+template<detail::is_spec Face>
+struct vtable<Face> {
+    using type = typename detail::from_spec_def<Face>::vtable_type;
+};
 
 template<detail::is_spec Face>
 struct direct_methods<Face> {
@@ -527,14 +532,9 @@ struct direct_bases<Face> {
     static constexpr auto const &value = detail::from_spec_def<Face>::direct_members.bases;
 };
 
-template<detail::is_spec Face>
-struct vtable<Face> {
-    using type = typename detail::from_spec_def<Face>::vtable_type;
-};
-
 template<class Impl, detail::is_spec Face>
-    requires(detail::from_spec_def<Face>::template vtable_implements<Impl>::has_value)
-struct vtable_implements<Impl, Face> {
-    static constexpr vtable_t<Face> const *value = detail::from_spec_def<Face>::template vtable_implements<Impl>::value;
+    requires(detail::from_spec_def<Face>::template vtable_for<Impl>::has_value)
+struct vtable_for<Impl, Face> {
+    static constexpr vtable_t<Face> const *value = detail::from_spec_def<Face>::template vtable_for<Impl>::value;
 };
 }

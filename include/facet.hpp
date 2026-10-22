@@ -501,7 +501,8 @@ struct typed_facets {
         template for (constexpr std::size_t K : std::views::iota(0uz, sizeof...(Faces))) {
             using Face = Faces...[K];
             if constexpr (upcastable_from<To, Face>) {
-                return vtable_upcast_from<To, Face>(fct::get<K>(vtables));
+                vtable_t<Face> const *vt = fct::get<K>(vtables);
+                return vtable_upcast_from<To, Face>(vt);
             }
         }
     }
@@ -562,6 +563,39 @@ struct typed_facets {
 }
 
 // ============================================================================
+// Interface for querying vtables and type information
+// ============================================================================
+
+namespace fct {
+template<class Impl, class... Faces>
+struct type_info_for;
+
+template<class Impl, class... Faces>
+concept has_type_info_for = requires {
+    { type_info_for<Impl, Faces...>::value } -> std::convertible_to<type_info const *>;
+};
+
+template<class Impl, class... Faces>
+constexpr inline type_info const *type_info_for_v = type_info_for<Impl, Faces...>::value;
+
+template<class Impl, class Face>
+struct vtable_for;
+
+template<class Impl, class Face>
+concept has_vtable_for = requires {
+    { vtable_for<Impl, Face>::value } -> std::convertible_to<vtable_t<Face> const *>;
+};
+
+template<class Impl, class Face>
+constexpr inline vtable_t<Face> const *vtable_for_v = vtable_for<Impl, Face>::value;
+
+template<class... Faces, class Impl>
+auto as_facets(Impl *data) {
+    return typed_facets<Impl, Faces...>(data, type_info_for_v<Impl, Faces...>, vtable_for_v<Impl, Faces>...);
+}
+}
+
+// ============================================================================
 // Implementation lookup and thunks
 //
 // For each interface method, public members of Impl and its public bases are
@@ -571,31 +605,20 @@ struct typed_facets {
 // ============================================================================
 
 namespace fct {
-template<class Impl, class Face>
-struct vtable_implements;
-
-template<class Impl, class Face>
-concept implements = requires { vtable_implements<Impl, Face>::value; };
-
-template<class Impl, class Face>
-constexpr vtable_t<Face> const *vtable_implements_v = vtable_implements<Impl, Face>::value;
-
 template<class Impl, class... Faces>
-    requires(implements<Impl, Faces> && ...)
-struct static_policy {
-    template<class Face>
-    static constexpr vtable_t<Face> const *vtable_ptr = vtable_implements_v<Impl, Face>;
-
-    static constexpr type_info rtti = {
+    requires(has_vtable_for<Impl, Faces> && ...)
+struct type_info_for<Impl, Faces...> {
+    static constexpr type_info content = {
         .version = FACET_TYPE_INFO_VERSION,
         .query = [](void *, interface_id_t id) -> void const * {
             template for (constexpr std::meta::info face : detail::type_list_v<Faces...>) {
                 using Face = typename[:face:];
+                constexpr vtable_t<Face> const *vt = vtable_for_v<Impl, Face>;
                 template for (constexpr std::meta::info to : detail::interface_closure_v<Face>) {
                     using To = typename[:to:];
                     if constexpr (has_interface_id<To>) {
                         if (interface_id_equal(id, interface_id_v<To>)) {
-                            return vtable_upcast_from<To, Face>(vtable_ptr<Face>);
+                            return vtable_upcast_from<To, Face>(vt);
                         }
                     }
                 }
@@ -604,13 +627,6 @@ struct static_policy {
         },
     };
 
-    static typed_facets<Impl, Faces...> make_facets(Impl *data) noexcept {
-        return typed_facets<Impl, Faces...>(data, &rtti, vtable_ptr<Faces>...);
-    }
+    static constexpr type_info const *value = &content;
 };
-
-template<class... Faces, class Impl>
-auto as_facets(Impl *data) {
-    return static_policy<Impl, Faces...>::make_facets(data);
-}
 }

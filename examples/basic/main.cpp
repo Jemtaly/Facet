@@ -28,10 +28,10 @@ struct BadDerivedModel {
 };
 
 void test_implementation() {
-    static_assert(fct::implements<GoodBaseModel, IBase>);
-    static_assert(!fct::implements<BadBaseModel, IBase>);
-    static_assert(fct::implements<GoodDerivedModel, IDerived>);
-    static_assert(!fct::implements<BadDerivedModel, IDerived>);
+    static_assert(fct::has_vtable_for<GoodBaseModel, IBase>);
+    static_assert(!fct::has_vtable_for<BadBaseModel, IBase>);
+    static_assert(fct::has_vtable_for<GoodDerivedModel, IDerived>);
+    static_assert(!fct::has_vtable_for<BadDerivedModel, IDerived>);
 }
 
 struct[[= fct::spec]] INamed {
