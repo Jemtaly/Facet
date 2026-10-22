@@ -131,26 +131,24 @@ void test_implementation_priority() {
 }
 
 struct[[= fct::spec]] IShippingQuote {
-    [[= fct::dispatch_via([](auto self, double weight_grams) -> double requires(
-        requires {
-            { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
-        } ||
-        requires {
-            { self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100 } -> std::convertible_to<double>;
-        }
-    ) {
+    double quote_dollars_per_kilogram(double weight_kilograms) const;
+    [[= fct::dispatch_via([](auto self, double weight_grams) -> double {
         if constexpr (requires {
             { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
         }) {
             return self.get()->quote_cents_per_gram(weight_grams);
         } else {
-            return self.get()->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
+            return self->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
         }
-    })]]
-    double quote_cents_per_gram(double weight_grams) const;
+    })]] double
+    quote_cents_per_gram(double weight_grams) const;
 };
 
 struct CentRateService {
+    double quote_dollars_per_kilogram(double weight_kilograms) const {
+        return weight_kilograms;
+    }
+
     double quote_cents_per_gram(double weight_grams) const {
         return weight_grams / 10;
     }
@@ -162,8 +160,6 @@ struct DollarRateService {
     }
 };
 
-struct InvalidRateService {};
-
 void test_shipping_quote_dispatcher() {
     CentRateService cent_rate_service;
     auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
@@ -172,8 +168,31 @@ void test_shipping_quote_dispatcher() {
     DollarRateService dollar_rate_service;
     auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
     assert(dollar_quote->quote_cents_per_gram(2000) == 250);
+}
 
-    static_assert(!fct::has_vtable_for<InvalidRateService, IShippingQuote>);
+template<typename Sig>
+struct IFunction;
+
+template<typename Ret, typename... Args>
+struct[[= fct::spec]] IFunction<Ret(Args...)> {
+    [[= fct::dispatch_via([](auto self, Args... args) -> Ret
+        requires requires {
+            { (*self.get())(args...) } -> std::convertible_to<Ret>;
+        }
+    {
+        return (*self.get())(args...);
+    })]]
+    Ret invoke(Args... args) const;
+};
+
+void test_function_dispatcher() {
+    auto lambda = [](int x) -> int {
+        return x + 5;
+    };
+    auto func = fct::as_facets<IFunction<int(int)>>(&lambda);
+    assert(func->invoke(10) == 15);
+
+    static_assert(!fct::has_vtable_for<decltype(lambda), IFunction<void()>>);
 }
 
 int main() {
@@ -182,4 +201,5 @@ int main() {
     test_manual_dispatch_for_name_conflicts();
     test_implementation_priority();
     test_shipping_quote_dispatcher();
+    test_function_dispatcher();
 }
