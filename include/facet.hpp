@@ -34,7 +34,7 @@ namespace detail {
 namespace meta = std::meta;
 
 template<class... Ts>
-constexpr inline meta::info type_list_v[] = {^^Ts...};
+inline constexpr meta::info type_list_v[] = {^^Ts...};
 
 consteval meta::access_context all_ctx() {
     return meta::access_context::unchecked();
@@ -45,7 +45,7 @@ consteval meta::access_context pub_ctx() {
 }
 
 template<class T>
-constexpr inline std::span<meta::info const> all_data_members_v =
+inline constexpr std::span<meta::info const> all_data_members_v =
     std::define_static_array(meta::nonstatic_data_members_of(^^T, all_ctx()));
 }
 }
@@ -116,13 +116,13 @@ template<class Face>
 struct direct_methods;
 
 template<class Face>
-constexpr inline std::span<direct_method_t const> direct_methods_v = direct_methods<Face>::value;
+inline constexpr std::span<direct_method_t const> direct_methods_v = direct_methods<Face>::value;
 
 template<class Face>
 struct direct_bases;
 
 template<class Face>
-constexpr inline std::span<direct_base_t const> direct_bases_v = direct_bases<Face>::value;
+inline constexpr std::span<direct_base_t const> direct_bases_v = direct_bases<Face>::value;
 
 namespace detail {
 // Appends I and all of its transitive bases (depth-first, without duplicates).
@@ -142,14 +142,14 @@ consteval void append_interface_closure(std::vector<meta::info> &out) {
 }
 
 template<class Face>
-constexpr inline std::span<meta::info const> interface_closure_v = [] {
+inline constexpr std::span<meta::info const> interface_closure_v = [] {
     std::vector<meta::info> out;
     append_interface_closure<Face>(out);
     return std::define_static_array(out);
 }();
 
 template<class... Faces>
-constexpr inline std::span<meta::info const> combined_interface_closure_v = [] {
+inline constexpr std::span<meta::info const> combined_interface_closure_v = [] {
     std::vector<meta::info> out;
     template for (constexpr meta::info face : type_list_v<Faces...>) {
         using Face = typename[:face:];
@@ -182,7 +182,7 @@ template<class Face>
 concept has_interface_id = requires { interface_id<Face>::value; };
 
 template<class Face>
-constexpr inline interface_id_t interface_id_v = interface_id<Face>::value;
+inline constexpr interface_id_t interface_id_v = interface_id<Face>::value;
 
 inline bool interface_id_equal(interface_id_t lhs, interface_id_t rhs) noexcept {
     if (lhs == rhs) {
@@ -198,7 +198,7 @@ inline bool interface_id_equal(interface_id_t lhs, interface_id_t rhs) noexcept 
 // unit.
 struct local_id_t {};
 
-constexpr inline local_id_t local_id{};
+inline constexpr local_id_t local_id{};
 
 // [[=uuid("...")]] assigns a non-empty id used to find the interface during
 // runtime cross-casts.
@@ -279,7 +279,6 @@ struct vtable_upcast_customizer<To, From> {
                 return vtable_upcast_from<To, Base>([:base.converter:](vt));
             }
         }
-        __builtin_unreachable();
     }
 };
 
@@ -576,7 +575,7 @@ concept has_type_info_for = requires {
 };
 
 template<class Impl, class... Faces>
-constexpr inline type_info const *type_info_for_v = type_info_for<Impl, Faces...>::value;
+inline constexpr type_info const *type_info_for_v = type_info_for<Impl, Faces...>::value;
 
 template<class Impl, class Face>
 struct vtable_for;
@@ -587,7 +586,7 @@ concept has_vtable_for = requires {
 };
 
 template<class Impl, class Face>
-constexpr inline vtable_t<Face> const *vtable_for_v = vtable_for<Impl, Face>::value;
+inline constexpr vtable_t<Face> const *vtable_for_v = vtable_for<Impl, Face>::value;
 
 template<class... Faces, class Impl>
 auto as_facets(Impl *data) {

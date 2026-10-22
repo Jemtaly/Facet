@@ -19,7 +19,7 @@ namespace fct {
 // [[=spec]] marks a type as a facet interface specification.
 struct spec_t {};
 
-constexpr inline spec_t spec{};
+inline constexpr spec_t spec{};
 
 using interface_version_t = std::uint64_t;
 
@@ -138,7 +138,7 @@ static consteval void collect_member_candidates(
 }
 
 template<class Impl>
-static constexpr std::span<meta::info const> static_candidates_v = [] {
+inline constexpr std::span<meta::info const> static_candidates_v = [] {
     std::vector<meta::info> out;
     std::vector<meta::info> visited;
     collect_static_candidates(^^Impl, visited, out);
@@ -146,7 +146,7 @@ static constexpr std::span<meta::info const> static_candidates_v = [] {
 }();
 
 template<class Impl>
-static constexpr std::span<meta::info const> member_candidates_v = [] {
+inline constexpr std::span<meta::info const> member_candidates_v = [] {
     std::vector<meta::info> out;
     std::vector<meta::info> visited;
     collect_member_candidates(^^Impl, visited, out);
@@ -408,48 +408,42 @@ struct from_spec_def {
                     return dispatcher;
                 }
 
-                std::vector<meta::info> exact_static_matches;
-                std::vector<meta::info> static_matches;
+                std::vector<meta::info> static_dispatchers;
                 for (meta::info candidate : static_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^static_dispatcher, {meta::reflect_constant(candidate)})) {
                             auto dispatcher = meta::substitute(^^static_dispatcher, {meta::reflect_constant(candidate)});
                             if (is_static_exact(candidate)) {
-                                exact_static_matches.push_back(dispatcher);
+                                return dispatcher;
                             } else {
-                                static_matches.push_back(dispatcher);
+                                static_dispatchers.push_back(dispatcher);
                             }
                         }
                     }
                 }
-                for (meta::info match : exact_static_matches) {
-                    return match;
-                }
 
-                std::vector<meta::info> exact_member_matches;
-                std::vector<meta::info> member_matches;
+                std::vector<meta::info> member_dispatchers;
                 for (meta::info candidate : member_candidates_v<Impl>) {
                     if (is_qualified_name(candidate)) {
                         if (meta::can_substitute(^^member_dispatcher, {meta::reflect_constant(candidate)})) {
                             auto dispatcher = meta::substitute(^^member_dispatcher, {meta::reflect_constant(candidate)});
                             if (is_member_exact(candidate)) {
-                                exact_member_matches.push_back(dispatcher);
+                                return dispatcher;
                             } else {
-                                member_matches.push_back(dispatcher);
+                                member_dispatchers.push_back(dispatcher);
                             }
                         }
                     }
                 }
-                for (meta::info match : exact_member_matches) {
-                    return match;
+
+                for (meta::info dispatcher : static_dispatchers) {
+                    return dispatcher;
                 }
 
-                for (meta::info match : static_matches) {
-                    return match;
+                for (meta::info dispatcher : member_dispatchers) {
+                    return dispatcher;
                 }
-                for (meta::info match : member_matches) {
-                    return match;
-                }
+
                 return {};
             }();
 
