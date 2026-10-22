@@ -58,32 +58,33 @@ void test_default_dispatcher() {
 }
 
 struct [[= fct::spec]] IShippingQuote {
-    double quote_dollars_per_kilogram(double weight_kilograms) const;
-    [[= fct::dispatch_via([](auto self, double weight_grams) -> double {
+    double quote_dollars_per_kilogram(double kilograms) const;
+
+    [[= fct::dispatch_via([](auto self, double grams) -> double {
         if constexpr (requires {
-            { self.get()->quote_cents_per_gram(weight_grams) } -> std::convertible_to<double>;
+            { self.get()->quote_cents_per_gram(grams) } -> std::convertible_to<double>;
         }) {
-            return self.get()->quote_cents_per_gram(weight_grams);
+            return self.get()->quote_cents_per_gram(grams);
         } else {
-            return self->quote_dollars_per_kilogram(weight_grams / 1000) * 100;
+            return self->quote_dollars_per_kilogram(grams / 1000) * 100;
         }
-    })]] double
-    quote_cents_per_gram(double weight_grams) const;
+    })]]
+    double quote_cents_per_gram(double grams) const;
 };
 
 struct CentRateService {
-    double quote_dollars_per_kilogram(double weight_kilograms) const {
-        return weight_kilograms;
+    double quote_dollars_per_kilogram(double kilograms) const {
+        return kilograms;
     }
 
-    double quote_cents_per_gram(double weight_grams) const {
-        return weight_grams / 10;
+    double quote_cents_per_gram(double grams) const {
+        return grams / 10;
     }
 };
 
 struct DollarRateService {
-    double quote_dollars_per_kilogram(double weight_kilograms) const {
-        return weight_kilograms * 1.25;
+    double quote_dollars_per_kilogram(double kilograms) const {
+        return kilograms * 1.25;
     }
 };
 
