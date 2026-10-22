@@ -173,24 +173,25 @@ struct from_spec_def {
 
     static constexpr std::span<field_descriptor const> field_descriptors = [] {
         if (!meta::is_class_type(^^Face)) {
-            compile_time_error("facet: interface spec must be a class type");
+            throw meta::exception("facet: interface spec must be a class type", ^^Face);
         }
         std::vector<field_descriptor> result;
         for (meta::info base : meta::bases_of(^^Face, all_ctx())) {
             result.emplace_back(field_kind::base, base);
         }
         for (meta::info member : meta::members_of(^^Face, all_ctx())) {
-            if (meta::is_special_member_function(member)) {
+            if (!meta::is_function(member)) {
+                throw meta::exception("facet: interface spec contains non-function member", member);
+            }
+            if (!meta::is_user_declared(member)) {
                 continue;
             }
-            if (!meta::is_function(member) ||
-                meta::is_constructor(member) ||
+            if (meta::is_constructor(member) ||
                 meta::is_destructor(member) ||
                 meta::is_static_member(member) ||
                 meta::is_operator_function(member) ||
-                meta::is_conversion_function(member) ||
-                meta::is_function_template(member)) {
-                compile_time_error("facet: interface spec contains invalid member function");
+                meta::is_conversion_function(member)) {
+                throw meta::exception("facet: interface spec contains invalid member function", member);
             }
             result.emplace_back(field_kind::method, member);
         }
@@ -274,7 +275,7 @@ struct from_spec_def {
     template<meta::info Method, meta::info Member, class R, class... A>
     struct automatic_method_invoker_t<Method, Member, R(A...)> {
         R operator()(facets_type self, A... args) const {
-            vtable_type const *vt = fct::get<0>(self.vtables);
+            vtable_type const *vt = self.template vtable_at<0>();
             constexpr since_t since = get_method_since(Method);
             if constexpr (since.fallback != meta::info{}) {
                 if (vt->version < since.version) {
@@ -452,7 +453,7 @@ struct from_spec_def {
                     [:dispatcher:](typed_self, std::forward<A>(args)...);
                 }
             {
-                typed_facets_type typed_self(static_cast<Impl *>(self.data), self.rtti, self.vtables);
+                typed_facets_type typed_self(self);
                 return [:dispatcher:](typed_self, std::forward<A>(args)...);
             }
         };
