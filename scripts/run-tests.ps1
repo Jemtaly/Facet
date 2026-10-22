@@ -76,7 +76,8 @@ function Build-And-RunSharedProject {
 try {
     foreach ($project in @(
             "basic",
-            "dynamic_cast",
+            "query",
+            "overload",
             "dispatch",
             "manual",
             "memory"

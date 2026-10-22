@@ -29,7 +29,7 @@ struct Model {
     }
 };
 
-void test_dynamic_cast() {
+void test_query_interface() {
     Model model;
     auto initial = fct::as_facets<IRoot, IExtra>(&model);
     fct::facets<IRoot> root = initial;
@@ -60,7 +60,7 @@ struct TemplateModel {
     }
 };
 
-void test_template_dynamic_cast() {
+void test_query_template_interface() {
     TemplateModel model;
     auto handle = fct::as_facets<ITemplate<int>>(&model);
     fct::opaque root = handle;
@@ -74,6 +74,6 @@ void test_template_dynamic_cast() {
 }
 
 int main() {
-    test_dynamic_cast();
-    test_template_dynamic_cast();
+    test_query_interface();
+    test_query_template_interface();
 }

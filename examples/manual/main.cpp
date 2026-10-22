@@ -147,7 +147,7 @@ struct Counter {
     int value;
 };
 
-void test_manual_counter() {
+void test_manual_interface() {
     Counter counter{42};
     auto handle = fct::as_facets<IManualCounter>(&counter);
     assert(handle->count() == 42);
@@ -159,6 +159,70 @@ void test_manual_counter() {
     fct::facets<IManualCounter> recast{reader};
     assert(recast);
     assert(recast->count() == 42);
+}
+
+struct IManualBase {};
+
+namespace fct {
+template<>
+struct interface_id<IManualBase> {
+    static constexpr interface_id_t value = "facet.tests.manual.base";
+};
+
+template<>
+struct vtable<IManualBase> {
+    struct type {
+        int (*base)(void *data);
+    };
+};
+
+template<>
+struct direct_methods<IManualBase> {
+    static constexpr std::array<direct_method_t, 1> value = {
+        direct_method("base", [](facets<IManualBase> handle) {
+            return fct::get<0>(handle.vtables)->base(handle.data);
+        }),
+    };
+};
+
+template<>
+struct direct_bases<IManualBase> {
+    static constexpr std::array<direct_base_t, 0> value = {};
+};
+
+template<typename Impl>
+struct vtable_for<Impl, IManualBase> {
+    static int base(void *data) {
+        return static_cast<Impl *>(data)->base();
+    }
+
+    static constexpr vtable_t<IManualBase> table{
+        .base = base,
+    };
+    static constexpr vtable_t<IManualBase> const *value = &table;
+};
+}
+
+struct[[= fct::spec]]
+      [[= fct::uuid("facet.tests.manual.derived")]] IDerived : IManualBase {
+    int derived();
+};
+
+struct Derived {
+    int base() {
+        return 12;
+    }
+
+    int derived() {
+        return 34;
+    }
+};
+
+void test_manual_interface_inheritance() {
+    Derived derived;
+    auto handle = fct::as_facets<IDerived>(&derived);
+    assert(handle->base() == 12);
+    assert(handle->derived() == 34);
 }
 
 template<typename T>
@@ -222,72 +286,8 @@ void test_manual_template_interface() {
     assert(!wrong_value);
 }
 
-struct IManualBase {};
-
-namespace fct {
-template<>
-struct interface_id<IManualBase> {
-    static constexpr interface_id_t value = "facet.tests.manual.base";
-};
-
-template<>
-struct vtable<IManualBase> {
-    struct type {
-        int (*base)(void *data);
-    };
-};
-
-template<>
-struct direct_methods<IManualBase> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("base", [](facets<IManualBase> handle) {
-            return fct::get<0>(handle.vtables)->base(handle.data);
-        }),
-    };
-};
-
-template<>
-struct direct_bases<IManualBase> {
-    static constexpr std::array<direct_base_t, 0> value = {};
-};
-
-template<typename Impl>
-struct vtable_for<Impl, IManualBase> {
-    static int base(void *data) {
-        return static_cast<Impl *>(data)->base();
-    }
-
-    static constexpr vtable_t<IManualBase> table{
-        .base = base,
-    };
-    static constexpr vtable_t<IManualBase> const *value = &table;
-};
-}
-
-struct[[= fct::spec]]
-      [[= fct::uuid("facet.tests.manual.derived")]] IDerived : IManualBase {
-    int derived();
-};
-
-struct Derived {
-    int base() {
-        return 12;
-    }
-
-    int derived() {
-        return 34;
-    }
-};
-
-void test_manual_derived() {
-    Derived derived;
-    auto handle = fct::as_facets<IDerived>(&derived);
-    assert(handle->base() == 12);
-    assert(handle->derived() == 34);
-}
-
 int main() {
-    test_manual_counter();
+    test_manual_interface();
+    test_manual_interface_inheritance();
     test_manual_template_interface();
-    test_manual_derived();
 }

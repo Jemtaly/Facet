@@ -484,8 +484,9 @@ The [`examples/`](./examples/) directory contains self-contained programs:
 | Example | Demonstrates |
 | --- | --- |
 | [`basic`](./examples/basic/main.cpp) | Basic interfaces, interface templates, and hierarchy conversions |
-| [`dynamic_cast`](./examples/dynamic_cast/main.cpp) | Runtime interface queries from interface and data handles |
-| [`dispatch`](./examples/dispatch/main.cpp) | Overloads, dispatch priority, interface-specific static dispatch, and custom dispatchers |
+| [`runtime_query`](./examples/runtime_query/main.cpp) | Runtime interface queries from interface and data handles |
+| [`overload`](./examples/overload/main.cpp) | Implementation overloads, interface overloads, and interface-specific static dispatch |
+| [`dispatch`](./examples/dispatch/main.cpp) | Implementation-candidate priority and custom dispatchers |
 | [`manual`](./examples/manual/main.cpp) | Explicit vtable and metadata specializations, including template interface IDs |
 | [`memory`](./examples/memory/main.cpp) | Shared, unique, and borrowed wrappers |
 | [`abi`](./examples/abi/main.cpp) | Shared-library interfaces identified by UUID |

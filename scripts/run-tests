@@ -50,7 +50,7 @@ build_and_run_shared_project() {
     "$program"
 }
 
-for project in basic dynamic_cast dispatch manual memory; do
+for project in basic query overload dispatch manual memory; do
     build_and_run_project "$project"
 done
 

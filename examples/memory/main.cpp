@@ -71,45 +71,54 @@ void test_tracked_lifetime() {
     assert(Tracked::destroyed == 3);
 }
 
-struct[[= fct::spec]] IRecoverable {
-    fct::shared_facets<IRecoverable> retain() const;
+struct[[= fct::spec]] IRetainable {
+    fct::shared_facets<IRetainable> retain() const;
+    void invoke(std::function<void(fct::borrowed_facets<IRetainable>)>) const;
 };
 
-struct Recoverable : fct::enable_shared_from_self<Recoverable> {
+struct Retainable : fct::enable_shared_from_self<Retainable> {
     static inline int alive = 0;
     static inline int destroyed = 0;
 
-    Recoverable() {
+    Retainable() {
         ++alive;
     }
 
-    ~Recoverable() {
+    ~Retainable() {
         --alive;
         ++destroyed;
     }
 
-    static fct::shared_facets<IRecoverable> retain(fct::typed_facets<Recoverable, IRecoverable> self) {
+    static fct::shared_facets<IRetainable> retain(fct::typed_facets<Retainable, IRetainable> self) {
         return fct::shared_from(self);
+    }
+
+    static void invoke(fct::typed_facets<Retainable, IRetainable> self, std::function<void(fct::borrowed_facets<IRetainable>)> callback) {
+        callback(fct::borrowed_from(self));
     }
 };
 
-void test_recoverable() {
-    Recoverable::alive = 0;
-    Recoverable::destroyed = 0;
+void test_shared_from_self() {
+    Retainable::alive = 0;
+    Retainable::destroyed = 0;
 
     {
-        auto object = fct::make_shared<Recoverable, IRecoverable>();
+        auto object = fct::make_shared<Retainable, IRetainable>();
         {
-            fct::shared_facets<IRecoverable> retained = object->retain();
+            fct::shared_facets<IRetainable> retained = object->retain();
             assert(retained);
+
+            object->invoke([](fct::borrowed_facets<IRetainable> retained) {
+                assert(retained);
+            });
         }
-        assert(Recoverable::alive == 1);
+        assert(Retainable::alive == 1);
     }
-    assert(Recoverable::alive == 0);
-    assert(Recoverable::destroyed == 1);
+    assert(Retainable::alive == 0);
+    assert(Retainable::destroyed == 1);
 }
 
 int main() {
     test_tracked_lifetime();
-    test_recoverable();
+    test_shared_from_self();
 }

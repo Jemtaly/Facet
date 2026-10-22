@@ -1,82 +1,9 @@
 #include <cassert>
-#include <string>
 
 #include <facet.hpp>
 #include <facet/reflection.hpp>
 
-struct[[= fct::spec]] ICalculator {
-    int calculate() const;
-    int calculate(int value) const;
-};
-
-struct Calculator {
-    int calculate() const {
-        return 3;
-    }
-
-    int calculate(int value) const {
-        return value * 4;
-    }
-};
-
-void test_overloaded_implementation_methods() {
-    Calculator calculator;
-    auto handle = fct::as_facets<ICalculator>(&calculator);
-    assert(handle->calculate() == 3);
-    assert(handle->calculate(5) == 20);
-}
-
-struct[[= fct::spec]] ITextChannel {
-    std::string send() const;
-};
-
-struct[[= fct::spec]] IIndexChannel {
-    int send(int index) const;
-};
-
-struct Channel {
-    std::string send() const {
-        return "text";
-    }
-
-    int send(int index) const {
-        return index * 3;
-    }
-};
-
-void test_same_name_automatic_dispatch() {
-    Channel channel;
-    auto handle = fct::as_facets<ITextChannel, IIndexChannel>(&channel);
-    assert(handle->send() == "text");
-    assert(handle->send(7) == 21);
-}
-
-struct[[= fct::spec]] ILeft {
-    int value() const;
-};
-
-struct[[= fct::spec]] IRight {
-    int value() const;
-};
-
-struct ConflictModel {
-    static int value(fct::typed_facets<ConflictModel, ILeft>) {
-        return 1;
-    }
-
-    static int value(fct::typed_facets<ConflictModel, IRight>) {
-        return 2;
-    }
-};
-
-void test_manual_dispatch_for_name_conflicts() {
-    ConflictModel model;
-    auto handle = fct::as_facets<ILeft, IRight>(&model);
-    assert(handle.as<ILeft>()->value() == 1);
-    assert(handle.as<IRight>()->value() == 2);
-}
-
-struct[[= fct::spec]] ISelect {
+struct [[= fct::spec]] ISelect {
     int select(int value) const;
 };
 
@@ -116,7 +43,7 @@ struct CompatibleMemberWins {
     }
 };
 
-void test_implementation_priority() {
+void test_default_dispatcher() {
     ExactStaticWins model_a;
     assert(fct::as_facets<ISelect>(&model_a)->select(1) == 21);
 
@@ -130,7 +57,7 @@ void test_implementation_priority() {
     assert(fct::as_facets<ISelect>(&model_d)->select(1) == 71);
 }
 
-struct[[= fct::spec]] IShippingQuote {
+struct [[= fct::spec]] IShippingQuote {
     double quote_dollars_per_kilogram(double weight_kilograms) const;
     [[= fct::dispatch_via([](auto self, double weight_grams) -> double {
         if constexpr (requires {
@@ -160,13 +87,15 @@ struct DollarRateService {
     }
 };
 
-void test_shipping_quote_dispatcher() {
+void test_custom_dispatcher() {
     CentRateService cent_rate_service;
     auto cent_quote = fct::as_facets<IShippingQuote>(&cent_rate_service);
+    assert(cent_quote->quote_dollars_per_kilogram(2) == 2);
     assert(cent_quote->quote_cents_per_gram(2000) == 200);
 
     DollarRateService dollar_rate_service;
     auto dollar_quote = fct::as_facets<IShippingQuote>(&dollar_rate_service);
+    assert(dollar_quote->quote_dollars_per_kilogram(2) == 2.5);
     assert(dollar_quote->quote_cents_per_gram(2000) == 250);
 }
 
@@ -174,7 +103,7 @@ template<typename Sig>
 struct IFunction;
 
 template<typename Ret, typename... Args>
-struct[[= fct::spec]] IFunction<Ret(Args...)> {
+struct [[= fct::spec]] IFunction<Ret(Args...)> {
     [[= fct::dispatch_via([](auto self, Args... args) -> Ret
         requires requires {
             { (*self.get())(args...) } -> std::convertible_to<Ret>;
@@ -185,7 +114,7 @@ struct[[= fct::spec]] IFunction<Ret(Args...)> {
     Ret invoke(Args... args) const;
 };
 
-void test_function_dispatcher() {
+void test_custom_dispatcher_with_requires() {
     auto lambda = [](int x) -> int {
         return x + 5;
     };
@@ -196,10 +125,7 @@ void test_function_dispatcher() {
 }
 
 int main() {
-    test_overloaded_implementation_methods();
-    test_same_name_automatic_dispatch();
-    test_manual_dispatch_for_name_conflicts();
-    test_implementation_priority();
-    test_shipping_quote_dispatcher();
-    test_function_dispatcher();
+    test_default_dispatcher();
+    test_custom_dispatcher();
+    test_custom_dispatcher_with_requires();
 }
