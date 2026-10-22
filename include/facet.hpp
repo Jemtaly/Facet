@@ -330,20 +330,19 @@ using combined_facade = typename detail::combined_facade_def<Self, Faces...>::ty
 
 namespace detail {
 template<auto Invoker>
-struct invoker {
-    template<class... Args>
-        requires requires(Args &&...args) {
-            Invoker(std::forward<Args>(args)...);
-        }
-    decltype(auto) operator()(Args &&...args) const {
-        return Invoker(std::forward<Args>(args)...);
-    }
+struct callable : decltype(Invoker) {
+    constexpr callable() : decltype(Invoker)(Invoker) {}
+
+    using decltype(Invoker)::operator();
 };
 
 template<auto... Invokers>
-struct overload : invoker<Invokers>... {
-    using invoker<Invokers>::operator()...;
+struct overload : callable<Invokers>... {
+    using callable<Invokers>::operator()...;
 };
+
+template<auto... Invokers>
+inline constexpr overload<Invokers...> overload_v{};
 
 template<class Facade, class Self, std::size_t GroupIndex, auto... Invokers>
 struct slot {
@@ -352,7 +351,7 @@ struct slot {
         constexpr auto offset = meta::offset_of(all_data_members_v<Facade>[GroupIndex]).bytes;
         auto const *facade = reinterpret_cast<Facade const *>(reinterpret_cast<std::byte const *>(this) - offset);
         auto self = *reinterpret_cast<Self const *>(facade);
-        return overload<Invokers...>()(self, std::forward<Args>(args)...);
+        return overload_v<Invokers...>(self, std::forward<Args>(args)...);
     }
 };
 
