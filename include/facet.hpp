@@ -43,21 +43,10 @@ inline constexpr std::span<meta::info const> all_data_members_v =
 }
 
 // ============================================================================
-// Interface protocol
-//
-// These templates are the non-reflective protocol consumed by the rest of the
-// library. Their defaults are generated from an interface specification, but
-// users may specialize them for interfaces that cannot or should not use the
-// automatic reflection path.
+// Basic utilities
 // ============================================================================
 
 namespace fct {
-template<class Face>
-struct vtable;
-
-template<class Face>
-using vtable_t = typename vtable<Face>::type;
-
 struct static_string {
     char const *data;
     std::size_t size;
@@ -84,6 +73,49 @@ struct static_string {
     }
 };
 
+namespace detail {
+template<class... Ts>
+struct tuple_def {
+    struct type;
+
+    consteval {
+        meta::define_aggregate(^^type, {meta::data_member_spec(^^Ts, {.name = "_"})...});
+    }
+};
+}
+
+template<class... Ts>
+using tuple = typename detail::tuple_def<Ts...>::type;
+
+template<std::size_t I, class T>
+constexpr decltype(auto) get(T &&t) noexcept {
+    return (std::forward<T>(t).[:detail::all_data_members_v<std::remove_cvref_t<T>>[I]:]);
+}
+
+template<class F, class T>
+constexpr decltype(auto) apply(F &&f, T &&t) {
+    return [&]<std::size_t... Faces>(std::index_sequence<Faces...>) -> decltype(auto) {
+        return std::invoke(std::forward<F>(f), get<Faces>(std::forward<T>(t))...);
+    }(std::make_index_sequence<detail::all_data_members_v<std::remove_cvref_t<T>>.size()>{});
+}
+}
+
+// ============================================================================
+// Interface protocol
+//
+// These templates are the non-reflective protocol consumed by the rest of the
+// library. Their defaults are generated from an interface specification, but
+// users may specialize them for interfaces that cannot or should not use the
+// automatic reflection path.
+// ============================================================================
+
+namespace fct {
+template<class Face>
+struct vtable;
+
+template<class Face>
+using vtable_t = typename vtable<Face>::type;
+
 struct direct_method_t {
     static_string name;
     std::meta::info invoker;
@@ -94,6 +126,12 @@ consteval direct_method_t direct_method(std::string_view name, Invoker invoker) 
     return {static_string::make(name), std::meta::reflect_constant(invoker)};
 }
 
+template<class Face>
+struct direct_methods;
+
+template<class Face>
+inline constexpr std::span<direct_method_t const> direct_methods_v = direct_methods<Face>::value;
+
 struct direct_base_t {
     std::meta::info type;
     std::meta::info converter;
@@ -103,12 +141,6 @@ template<class Base, class Converter>
 consteval direct_base_t direct_base(Converter converter) {
     return {^^Base, std::meta::reflect_constant(converter)};
 }
-
-template<class Face>
-struct direct_methods;
-
-template<class Face>
-inline constexpr std::span<direct_method_t const> direct_methods_v = direct_methods<Face>::value;
 
 template<class Face>
 struct direct_bases;
@@ -171,9 +203,11 @@ template<class Face>
 struct interface_id;
 
 template<class Face>
-concept has_interface_id = requires { interface_id<Face>::value; };
+concept has_interface_id = requires {
+    { interface_id<Face>::value } -> std::convertible_to<interface_id_t>;
+};
 
-template<class Face>
+template<has_interface_id Face>
 inline constexpr interface_id_t interface_id_v = interface_id<Face>::value;
 
 inline bool interface_id_equal(interface_id_t lhs, interface_id_t rhs) noexcept {
@@ -192,35 +226,35 @@ struct local_id_t {};
 
 inline constexpr local_id_t local_id{};
 
-// [[=uuid("...")]] assigns a non-empty id used to find the interface during
+// [[=id("...")]] assigns a non-empty id used to find the interface during
 // runtime cross-casts.
-struct uuid_t {
+struct id_t {
     static_string value;
 };
 
-consteval uuid_t uuid(std::string_view value) {
+consteval id_t id(std::string_view value) {
     return {static_string::make(value)};
 }
 
 namespace detail {
 template<class Face>
-concept has_local_id = !meta::annotations_of_with_type(^^Face, ^^local_id_t).empty();
+concept annotated_local_id = !meta::annotations_of_with_type(^^Face, ^^local_id_t).empty();
 
 template<class Face>
-concept has_uuid = !meta::annotations_of_with_type(^^Face, ^^uuid_t).empty();
+concept annotated_id = !meta::annotations_of_with_type(^^Face, ^^id_t).empty();
 
 inline consteval interface_id_t get_interface_id(meta::info face) {
-    auto annotations = meta::annotations_of_with_type(face, ^^uuid_t);
-    return meta::extract<uuid_t>(annotations[0]).value.data;
+    auto annotations = meta::annotations_of_with_type(face, ^^id_t);
+    return meta::extract<id_t>(annotations[0]).value.data;
 }
 }
 
-template<detail::has_local_id Face>
+template<detail::annotated_local_id Face>
 struct interface_id<Face> {
     static constexpr char value[] = "";
 };
 
-template<detail::has_uuid Face>
+template<detail::annotated_id Face>
 struct interface_id<Face> {
     static constexpr interface_id_t value = detail::get_interface_id(^^Face);
 };
@@ -284,8 +318,7 @@ concept queryable = requires(type_info const *rtti, void *data) {
     { vtable_query_customizer<To>()(rtti, data) } -> std::same_as<vtable_t<To> const *>;
 };
 
-template<class To>
-    requires queryable<To>
+template<queryable To>
 constexpr vtable_t<To> const *vtable_query_with(type_info const *rtti, void *data) noexcept {
     if (data == nullptr) {
         return nullptr;
@@ -409,38 +442,6 @@ struct combined_facade_def {
         define_facade_members(^^type, ^^Self, table);
     }
 };
-}
-}
-
-// ============================================================================
-// Tuple
-// ============================================================================
-
-namespace fct {
-namespace detail {
-template<class... Ts>
-struct tuple_def {
-    struct type;
-
-    consteval {
-        meta::define_aggregate(^^type, {meta::data_member_spec(^^Ts, {.name = "_"})...});
-    }
-};
-}
-
-template<class... Ts>
-using tuple = typename detail::tuple_def<Ts...>::type;
-
-template<std::size_t I, class T>
-constexpr decltype(auto) get(T &&t) noexcept {
-    return (std::forward<T>(t).[:detail::all_data_members_v<std::remove_cvref_t<T>>[I]:]);
-}
-
-template<class F, class T>
-constexpr decltype(auto) apply(F &&f, T &&t) {
-    return [&]<std::size_t... Faces>(std::index_sequence<Faces...>) -> decltype(auto) {
-        return std::invoke(std::forward<F>(f), get<Faces>(std::forward<T>(t))...);
-    }(std::make_index_sequence<detail::all_data_members_v<std::remove_cvref_t<T>>.size()>{});
 }
 }
 

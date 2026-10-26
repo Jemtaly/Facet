@@ -58,7 +58,7 @@ consteval dispatch_via_t dispatch_via(Dispatcher dispatcher) {
 
 namespace detail {
 template<class Face>
-concept is_spec = !meta::annotations_of_with_type(^^Face, ^^spec_t).empty();
+concept annotated_spec = !meta::annotations_of_with_type(^^Face, ^^spec_t).empty();
 
 inline consteval interface_version_t get_interface_version(meta::info face) {
     auto annotations = meta::annotations_of_with_type(face, ^^version_t);
@@ -153,13 +153,13 @@ inline constexpr std::span<meta::info const> member_candidates_v = [] {
     return std::define_static_array(out);
 }();
 
-template<class Face>
+template<annotated_spec Spec>
 struct from_spec_def {
-    using facets_type = facets<Face>;
+    using facets_type = facets<Spec>;
 
     struct vtable_type;
 
-    static constexpr interface_version_t interface_version = get_interface_version(^^Face);
+    static constexpr interface_version_t interface_version = get_interface_version(^^Spec);
 
     enum class field_kind {
         base,
@@ -172,14 +172,14 @@ struct from_spec_def {
     };
 
     static constexpr std::span<field_descriptor const> field_descriptors = [] {
-        if (!meta::is_class_type(^^Face)) {
-            throw meta::exception("facet: interface spec must be a class type", ^^Face);
+        if (!meta::is_class_type(^^Spec) || !meta::is_complete_type(^^Spec)) {
+            throw meta::exception("facet: interface spec must be a complete class type", ^^Spec);
         }
         std::vector<field_descriptor> result;
-        for (meta::info base : meta::bases_of(^^Face, all_ctx())) {
+        for (meta::info base : meta::bases_of(^^Spec, all_ctx())) {
             result.emplace_back(field_kind::base, base);
         }
-        for (meta::info member : meta::members_of(^^Face, all_ctx())) {
+        for (meta::info member : meta::members_of(^^Spec, all_ctx())) {
             if (!meta::is_function(member)) {
                 throw meta::exception("facet: interface spec contains non-function member", member);
             }
@@ -327,7 +327,7 @@ struct from_spec_def {
 
     template<class Impl>
     struct vtable_for {
-        using typed_facets_type = typed_facets<Impl, Face>;
+        using typed_facets_type = typed_facets<Impl, Spec>;
 
         template<meta::info Base,
                  class Type = typename[:meta::type_of(Base):]>
@@ -512,24 +512,24 @@ struct from_spec_def {
 };
 }
 
-template<detail::is_spec Face>
-struct vtable<Face> {
-    using type = typename detail::from_spec_def<Face>::vtable_type;
+template<detail::annotated_spec Spec>
+struct vtable<Spec> {
+    using type = typename detail::from_spec_def<Spec>::vtable_type;
 };
 
-template<detail::is_spec Face>
-struct direct_methods<Face> {
-    static constexpr auto const &value = detail::from_spec_def<Face>::direct_members.methods;
+template<detail::annotated_spec Spec>
+struct direct_methods<Spec> {
+    static constexpr auto const &value = detail::from_spec_def<Spec>::direct_members.methods;
 };
 
-template<detail::is_spec Face>
-struct direct_bases<Face> {
-    static constexpr auto const &value = detail::from_spec_def<Face>::direct_members.bases;
+template<detail::annotated_spec Spec>
+struct direct_bases<Spec> {
+    static constexpr auto const &value = detail::from_spec_def<Spec>::direct_members.bases;
 };
 
-template<class Impl, detail::is_spec Face>
-    requires(detail::from_spec_def<Face>::template vtable_for<Impl>::has_value)
-struct vtable_for<Impl, Face> {
-    static constexpr vtable_t<Face> const *value = detail::from_spec_def<Face>::template vtable_for<Impl>::value;
+template<class Impl, detail::annotated_spec Spec>
+    requires(detail::from_spec_def<Spec>::template vtable_for<Impl>::has_value)
+struct vtable_for<Impl, Spec> {
+    static constexpr vtable_t<Spec> const *value = detail::from_spec_def<Spec>::template vtable_for<Impl>::value;
 };
 }

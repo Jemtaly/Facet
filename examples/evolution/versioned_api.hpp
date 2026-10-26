@@ -9,7 +9,7 @@
 
 namespace facet_test_evolution {
 struct[[= fct::spec]]
-      [[= fct::uuid("facet.tests.versioned-api")]]
+      [[= fct::id("facet.tests.versioned-api")]]
       [[= fct::version(FACET_TEST_API_LEVEL)]] IRevisioned {
     int value() const;
 

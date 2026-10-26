@@ -5,9 +5,9 @@
 #include <facet/reflection.hpp>
 
 // Interface tags
-struct[[= fct::uuid("facet.tests.manual.root")]] IManualRoot;
-struct[[= fct::uuid("facet.tests.manual.reader")]] IManualReader;
-struct[[= fct::uuid("facet.tests.manual.counter")]] IManualCounter;
+struct[[= fct::id("facet.tests.manual.root")]] IManualRoot;
+struct[[= fct::id("facet.tests.manual.reader")]] IManualReader;
+struct[[= fct::id("facet.tests.manual.counter")]] IManualCounter;
 
 struct RootDispatch {
     int (*root_value)(void *);
@@ -204,7 +204,7 @@ struct vtable_for<Impl, IManualBase> {
 }
 
 struct[[= fct::spec]]
-      [[= fct::uuid("facet.tests.manual.derived")]] IDerived : IManualBase {
+      [[= fct::id("facet.tests.manual.derived")]] IDerived : IManualBase {
     int derived();
 };
 
