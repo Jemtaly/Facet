@@ -1,102 +1,92 @@
 #pragma once
 
-#include <cassert>
+#include <algorithm>
+#include <array>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <meta>
-#include <ranges>
-#include <span>
-#include <string>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #define FACET_TYPE_INFO_VERSION 0
-
-// ============================================================================
-// Reflection utilities
-// ============================================================================
-
-namespace fct {
-namespace detail {
-namespace meta = std::meta;
-
-template<class... Ts>
-inline constexpr meta::info type_list_v[] = {^^Ts...};
-
-consteval meta::access_context all_ctx() {
-    return meta::access_context::unchecked();
-}
-
-consteval meta::access_context pub_ctx() {
-    return meta::access_context::unprivileged();
-}
-
-template<class T>
-inline constexpr std::span<meta::info const> all_data_members_v =
-    std::define_static_array(meta::nonstatic_data_members_of(^^T, all_ctx()));
-}
-}
 
 // ============================================================================
 // Basic utilities
 // ============================================================================
 
 namespace fct {
-struct static_string {
-    char const *data;
-    std::size_t size;
+template<class... Ts>
+struct type_list {
+private:
+    template<std::size_t I, class List>
+    struct element;
 
-    template<char... Cs>
-    static constexpr char data_of[] = {Cs..., '\0'};
+    template<std::size_t I, class Head, class... Tail>
+    struct element<I, type_list<Head, Tail...>> : element<I - 1, type_list<Tail...>> {};
 
-    template<char... Cs>
-    static constexpr size_t size_of = sizeof...(Cs);
+    template<class Head, class... Tail>
+    struct element<0, type_list<Head, Tail...>> {
+        using type = Head;
+    };
 
-    template<char... Cs>
-    static constexpr static_string value_of = {data_of<Cs...>, size_of<Cs...>};
+public:
+    static constexpr std::size_t size = sizeof...(Ts);
 
-    static consteval static_string make(std::string_view sv) {
-        std::vector<std::meta::info> cs;
-        for (char c : sv) {
-            cs.push_back(std::meta::reflect_constant(c));
-        }
-        return std::meta::extract<static_string>(std::meta::substitute(^^value_of, cs));
-    }
-
-    constexpr std::string_view view() const noexcept {
-        return {data, size};
-    }
+    template<std::size_t I>
+    using at = typename element<I, type_list>::type;
 };
 
-namespace detail {
-template<class... Ts>
-struct tuple_def {
-    struct type;
+template<class Initial, class... Lists>
+struct concat;
 
-    consteval {
-        meta::define_aggregate(^^type, {meta::data_member_spec(^^Ts, {.name = "_"})...});
-    }
+template<class... Ts>
+struct concat<
+    type_list<Ts...>> {
+    using type = type_list<Ts...>;
 };
-}
+
+template<class... Ls, class... Rs, class... Rest>
+struct concat<
+    type_list<Ls...>,
+    type_list<Rs...>, Rest...>
+    : concat<
+          type_list<Ls..., Rs...>,
+          Rest...> {};
+
+template<class... Lists>
+using concat_t = typename concat<type_list<>, Lists...>::type;
 
 template<class... Ts>
-using tuple = typename detail::tuple_def<Ts...>::type;
+struct tuple;
+
+template<>
+struct tuple<> {
+    static constexpr std::size_t size = 0;
+};
+
+template<class Head, class... Tail>
+struct tuple<Head, Tail...> {
+    static constexpr std::size_t size = 1 + sizeof...(Tail);
+    Head head;
+    [[no_unique_address]] tuple<Tail...> tail;
+};
 
 template<std::size_t I, class T>
 constexpr decltype(auto) get(T &&t) noexcept {
-    return (std::forward<T>(t).[:detail::all_data_members_v<std::remove_cvref_t<T>>[I]:]);
+    if constexpr (I == 0) {
+        return (std::forward<T>(t).head);
+    } else {
+        return fct::get<I - 1>(std::forward<T>(t).tail);
+    }
 }
 
 template<class F, class T>
 constexpr decltype(auto) apply(F &&f, T &&t) {
-    return [&]<std::size_t... Faces>(std::index_sequence<Faces...>) -> decltype(auto) {
-        return std::invoke(std::forward<F>(f), get<Faces>(std::forward<T>(t))...);
-    }(std::make_index_sequence<detail::all_data_members_v<std::remove_cvref_t<T>>.size()>{});
+    return [&]<std::size_t... I>(std::index_sequence<I...>) -> decltype(auto) {
+        return std::invoke(std::forward<F>(f), fct::get<I>(std::forward<T>(t))...);
+    }(std::make_index_sequence<std::remove_cvref_t<T>::size>{});
 }
 }
 
@@ -116,71 +106,66 @@ struct vtable;
 template<class Face>
 using vtable_t = typename vtable<Face>::type;
 
-struct direct_method_t {
-    static_string name;
-    std::meta::info invoker;
+template<class Name, auto Invoker>
+struct direct_method {
+    using name = Name;
+    static constexpr auto invoker = Invoker;
 };
-
-template<class Invoker>
-consteval direct_method_t direct_method(std::string_view name, Invoker invoker) {
-    return {static_string::make(name), std::meta::reflect_constant(invoker)};
-}
 
 template<class Face>
 struct direct_methods;
 
 template<class Face>
-inline constexpr std::span<direct_method_t const> direct_methods_v = direct_methods<Face>::value;
+using direct_methods_t = typename direct_methods<Face>::type;
 
-struct direct_base_t {
-    std::meta::info type;
-    std::meta::info converter;
+template<class Base, auto Converter>
+struct direct_base {
+    using type = Base;
+    static constexpr auto converter = Converter;
 };
-
-template<class Base, class Converter>
-consteval direct_base_t direct_base(Converter converter) {
-    return {^^Base, std::meta::reflect_constant(converter)};
-}
 
 template<class Face>
 struct direct_bases;
 
 template<class Face>
-inline constexpr std::span<direct_base_t const> direct_bases_v = direct_bases<Face>::value;
+using direct_bases_t = typename direct_bases<Face>::type;
 
 namespace detail {
-// Appends I and all of its transitive bases (depth-first, without duplicates).
-// All base traversal goes through direct_bases, including the automatic path.
-template<class Face>
-consteval void append_interface_closure(std::vector<meta::info> &out) {
-    for (meta::info face : out) {
-        if (meta::is_same_type(face, ^^Face)) {
-            return;
-        }
-    }
-    out.push_back(^^Face);
-    template for (constexpr direct_base_t base : direct_bases_v<Face>) {
-        using Base = typename[:base.type:];
-        append_interface_closure<Base>(out);
-    }
-}
+template<class Bases>
+struct base_types;
 
-template<class Face>
-inline constexpr std::span<meta::info const> interface_closure_v = [] {
-    std::vector<meta::info> out;
-    append_interface_closure<Face>(out);
-    return std::define_static_array(out);
-}();
+template<class... Bases>
+struct base_types<type_list<Bases...>> {
+    using type = type_list<typename Bases::type...>;
+};
+
+template<class Seen, class Pending>
+struct collect_interfaces;
+
+template<class Seen>
+struct collect_interfaces<Seen, type_list<>> {
+    using type = Seen;
+};
+
+template<class... Seen, class Next, class... Rest>
+struct collect_interfaces<
+    type_list<Seen...>,
+    type_list<Next, Rest...>>
+    : collect_interfaces<
+          type_list<Seen..., Next>,
+          concat_t<typename base_types<direct_bases_t<Next>>::type, type_list<Rest...>>> {};
+
+template<class... Seen, class Next, class... Rest>
+    requires(std::same_as<Next, Seen> || ...)
+struct collect_interfaces<
+    type_list<Seen...>,
+    type_list<Next, Rest...>>
+    : collect_interfaces<
+          type_list<Seen...>,
+          type_list<Rest...>> {};
 
 template<class... Faces>
-inline constexpr std::span<meta::info const> combined_interface_closure_v = [] {
-    std::vector<meta::info> out;
-    template for (constexpr meta::info face : type_list_v<Faces...>) {
-        using Face = typename[:face:];
-        append_interface_closure<Face>(out);
-    }
-    return std::define_static_array(out);
-}();
+using interface_closure_t = typename collect_interfaces<type_list<>, type_list<Faces...>>::type;
 }
 }
 
@@ -190,6 +175,7 @@ inline constexpr std::span<meta::info const> combined_interface_closure_v = [] {
 
 namespace fct {
 using interface_id_t = char const *;
+using interface_version_t = std::uint64_t;
 
 using type_info_version_t = std::uint64_t;
 using type_info_query_fn_t = void const *(*)(void *, interface_id_t);
@@ -218,46 +204,6 @@ inline bool interface_id_equal(interface_id_t lhs, interface_id_t rhs) noexcept 
     std::string_view rsv(rhs);
     return !lsv.empty() && !rsv.empty() && lsv == rsv;
 }
-
-// [[=local_id]] assigns a non-empty id used to find the interface during
-// runtime cross-casts, but it is only valid within the current translation
-// unit.
-struct local_id_t {};
-
-inline constexpr local_id_t local_id{};
-
-// [[=id("...")]] assigns a non-empty id used to find the interface during
-// runtime cross-casts.
-struct id_t {
-    static_string value;
-};
-
-consteval id_t id(std::string_view value) {
-    return {static_string::make(value)};
-}
-
-namespace detail {
-template<class Face>
-concept annotated_local_id = !meta::annotations_of_with_type(^^Face, ^^local_id_t).empty();
-
-template<class Face>
-concept annotated_id = !meta::annotations_of_with_type(^^Face, ^^id_t).empty();
-
-inline consteval interface_id_t get_interface_id(meta::info face) {
-    auto annotations = meta::annotations_of_with_type(face, ^^id_t);
-    return meta::extract<id_t>(annotations[0]).value.data;
-}
-}
-
-template<detail::annotated_local_id Face>
-struct interface_id<Face> {
-    static constexpr char value[] = "";
-};
-
-template<detail::annotated_id Face>
-struct interface_id<Face> {
-    static constexpr interface_id_t value = detail::get_interface_id(^^Face);
-};
 }
 
 // ============================================================================
@@ -282,6 +228,18 @@ constexpr vtable_t<To> const *vtable_upcast_from(vtable_t<From> const *vt) noexc
     return vtable_upcast_customizer<To, From>()(vt);
 }
 
+template<class To, class... From>
+concept upcastable_from_any = (upcastable_from<To, From> || ...);
+
+template<class To, class Source, class... Bases>
+    requires upcastable_from_any<To, typename Bases::type...>
+constexpr vtable_t<To> const *vtable_upcast_from_any(Source &&source, type_list<Bases...>) noexcept {
+    constexpr std::array matches = {upcastable_from<To, typename Bases::type>...};
+    constexpr auto index = std::ranges::find(matches, true) - matches.begin();
+    using Base = typename type_list<Bases...>::template at<index>;
+    return vtable_upcast_from<To, typename Base::type>(std::invoke(Base::converter, std::forward<Source>(source)));
+}
+
 template<class To>
 struct vtable_upcast_customizer<To, To> {
     constexpr vtable_t<To> const *operator()(vtable_t<To> const *vt) const noexcept {
@@ -290,23 +248,11 @@ struct vtable_upcast_customizer<To, To> {
 };
 
 template<class To, class From>
-    requires([] {
-        template for (constexpr direct_base_t base : direct_bases_v<From>) {
-            using Base = typename[:base.type:];
-            if constexpr (upcastable_from<To, Base>) {
-                return true;
-            }
-        }
-        return false;
-    }())
-struct vtable_upcast_customizer<To, From> {
-    constexpr vtable_t<To> const *operator()(vtable_t<From> const *vt) const noexcept {
-        template for (constexpr direct_base_t base : direct_bases_v<From>) {
-            using Base = typename[:base.type:];
-            if constexpr (upcastable_from<To, Base>) {
-                return vtable_upcast_from<To, Base>([:base.converter:](vt));
-            }
-        }
+struct vtable_upcast_customizer {
+    constexpr auto operator()(vtable_t<From> const *vt) const noexcept
+        requires requires { vtable_upcast_from_any<To>(vt, direct_bases_t<From>{}); }
+    {
+        return vtable_upcast_from_any<To>(vt, direct_bases_t<From>{});
     }
 };
 
@@ -337,25 +283,11 @@ struct vtable_query_customizer<To> {
 // ============================================================================
 // Facade
 //
-// facade<Self, Faces...> is an aggregate with one slot per method name. Each
-// slot combines the invokers for that name and dispatches through its handle.
+// Each facade inherits one Name::bind<Slot> per distinct name type.
+// The bound slot dispatches the overload set through the facade's handle.
 // ============================================================================
 
 namespace fct {
-namespace detail {
-template<class Self, class Face>
-struct facade_def;
-
-template<class Self, class... Faces>
-struct combined_facade_def;
-}
-
-template<class Self, class... Faces>
-using facade = typename detail::facade_def<Self, Faces...>::type;
-
-template<class Self, class... Faces>
-using combined_facade = typename detail::combined_facade_def<Self, Faces...>::type;
-
 namespace detail {
 template<auto Invoker>
 struct callable : decltype(Invoker) {
@@ -364,85 +296,87 @@ struct callable : decltype(Invoker) {
     using decltype(Invoker)::operator();
 };
 
-template<auto... Invokers>
-struct overload : callable<Invokers>... {
-    using callable<Invokers>::operator()...;
+template<class Methods>
+struct overload;
+
+template<class... Methods>
+struct overload<type_list<Methods...>> : callable<Methods::invoker>... {
+    using callable<Methods::invoker>::operator()...;
 };
 
-template<auto... Invokers>
-inline constexpr overload<Invokers...> overload_v{};
+template<class Seen, class Pending>
+struct unique_names;
 
-template<class Facade, class Self, std::size_t GroupIndex, auto... Invokers>
-struct slot {
-    template<class... Args>
-    decltype(auto) operator()(Args &&...args) const {
-        constexpr auto offset = meta::offset_of(all_data_members_v<Facade>[GroupIndex]).bytes;
-        auto const *facade = reinterpret_cast<Facade const *>(reinterpret_cast<std::byte const *>(this) - offset);
-        auto self = *reinterpret_cast<Self const *>(facade);
-        return overload_v<Invokers...>(self, std::forward<Args>(args)...);
-    }
+template<class Seen>
+struct unique_names<Seen, type_list<>> {
+    using type = Seen;
 };
 
-struct dispatch_group {
-    std::string name;
-    std::vector<meta::info> invokers;
-};
+template<class... Seen, class Name, class... Rest>
+struct unique_names<
+    type_list<Seen...>,
+    type_list<Name, Rest...>>
+    : unique_names<
+          type_list<Seen..., Name>,
+          type_list<Rest...>> {};
 
-using dispatch_table = std::vector<dispatch_group>;
+template<class... Seen, class Name, class... Rest>
+    requires(std::same_as<Name, Seen> || ...)
+struct unique_names<
+    type_list<Seen...>,
+    type_list<Name, Rest...>>
+    : unique_names<
+          type_list<Seen...>,
+          type_list<Rest...>> {};
 
-consteval dispatch_group &find_or_create_group(dispatch_table &table, std::string_view name) {
-    for (dispatch_group &group : table) {
-        if (group.name == name) {
-            return group;
+template<class Faces>
+struct methods_of;
+
+template<class... Faces>
+struct methods_of<type_list<Faces...>> : concat<direct_methods_t<Faces>...> {};
+
+template<class Self, class Faces, class Methods = typename methods_of<Faces>::type>
+struct facade_for;
+
+template<class Self, class Faces, class... Methods>
+struct facade_for<Self, Faces, type_list<Methods...>> {
+    template<class Name>
+    struct slot {
+        using methods = concat_t<std::conditional_t<
+            std::same_as<Name, typename Methods::name>,
+            type_list<Methods>,
+            type_list<>>...>;
+
+        Self const *self;
+
+        template<class Forwarder>
+        explicit slot(Forwarder const *name)
+            : self(reinterpret_cast<Self const *>(static_cast<type const *>(name))) {}
+
+        template<class... Args>
+            requires std::invocable<overload<methods>, Self const &, Args...>
+        decltype(auto) operator()(Args &&...args) const {
+            return overload<methods>{}(*self, std::forward<Args>(args)...);
         }
-    }
-    return table.emplace_back(std::string(name));
-}
+    };
 
-template<class Face>
-consteval void append_dispatch_table(dispatch_table &table) {
-    for (direct_method_t method : direct_methods_v<Face>) {
-        find_or_create_group(table, method.name.view()).invokers.push_back(method.invoker);
-    }
-}
+    template<class Names>
+    struct compose;
 
-consteval void define_facade_members(meta::info type, meta::info self, dispatch_table const &table) {
-    std::vector<meta::info> members;
-    for (auto const &[name, invokers] : table) {
-        std::vector<meta::info> slot_args = {type, self, meta::reflect_constant(members.size())};
-        for (auto invoker : invokers) {
-            slot_args.push_back(invoker);
-        }
-        members.push_back(meta::data_member_spec(meta::substitute(^^slot, slot_args), {.name = name, .no_unique_address = true}));
-    }
-    meta::define_aggregate(type, members);
+    template<class... Names>
+    struct compose<type_list<Names...>> {
+        using type = struct : Names::template bind<slot<Names>>... {};
+    };
+
+    using type = compose<typename unique_names<type_list<>, type_list<typename Methods::name...>>::type>::type;
+};
 }
 
 template<class Self, class Face>
-struct facade_def {
-    struct type;
-
-    consteval {
-        dispatch_table table;
-        append_dispatch_table<Face>(table);
-        define_facade_members(^^type, ^^Self, table);
-    }
-};
+using facade = typename detail::facade_for<Self, type_list<Face>>::type;
 
 template<class Self, class... Faces>
-struct combined_facade_def {
-    struct type;
-
-    consteval {
-        dispatch_table table;
-        template for (constexpr meta::info face : combined_interface_closure_v<Faces...>) {
-            using Face = typename[:face:];
-            append_dispatch_table<Face>(table);
-        }
-        define_facade_members(^^type, ^^Self, table);
-    }
-};
-}
+using combined_facade = typename detail::facade_for<Self, detail::interface_closure_t<Faces...>>::type;
 }
 
 // ============================================================================
@@ -465,12 +399,12 @@ struct typed_facets {
 
     constexpr typed_facets() noexcept = default;
 
-    constexpr explicit typed_facets(Impl *d, type_info const *r, vtable_t<Faces> const *...vs) noexcept : data(d), rtti(r), vtables(vs...) {}
+    constexpr explicit typed_facets(Impl *d, type_info const *r, vtable_t<Faces> const *...vs) noexcept : data(d), rtti(r), vtables{vs...} {}
 
     // ---- castability ------------------------------------------------------
 
     template<class To>
-    static constexpr bool is_upcastable = (upcastable_from<To, Faces> || ...);
+    static constexpr bool is_upcastable = upcastable_from_any<To, Faces...>;
 
     template<class To>
     static constexpr bool is_queryable = queryable<To>;
@@ -489,13 +423,9 @@ struct typed_facets {
     template<class To>
         requires(is_upcastable<To>)
     constexpr vtable_t<To> const *vtable_upcast() const noexcept {
-        template for (constexpr std::size_t K : std::views::iota(0uz, sizeof...(Faces))) {
-            using Face = Faces...[K];
-            if constexpr (upcastable_from<To, Face>) {
-                vtable_t<Face> const *vt = vtable_at<K>();
-                return vtable_upcast_from<To, Face>(vt);
-            }
-        }
+        return [this]<std::size_t... I>(std::index_sequence<I...>) {
+            return vtable_upcast_from_any<To>(*this, type_list<direct_base<Faces, &typed_facets::template vtable_at<I>>...>{});
+        }(std::index_sequence_for<Faces...>{});
     }
 
     template<class To>
@@ -530,7 +460,7 @@ struct typed_facets {
     }
 
     template<std::size_t K>
-    auto const *vtable_at() const noexcept {
+    constexpr auto const *vtable_at() const noexcept {
         return fct::get<K>(vtables);
     }
 
@@ -599,34 +529,42 @@ auto as_facets(Impl *data) {
 }
 
 // ============================================================================
-// Implementation lookup and thunks
-//
-// For each interface method, public members of Impl and its public bases are
-// searched by identifier. Exact matches are preferred in this order: static
-// functions taking typed_facets<Impl, I>, then member functions. If neither
-// has an exact match, the same order is used for invocable compatible matches.
+// Runtime interface query
 // ============================================================================
 
 namespace fct {
 template<class Impl, class... Faces>
     requires(has_vtable_for<Impl, Faces> && ...)
 struct type_info_for<Impl, Faces...> {
+private:
+    template<class Face, class Closure = detail::interface_closure_t<Face>>
+    struct query_face;
+
+    template<class Face, class... Tos>
+    struct query_face<Face, type_list<Tos...>> {
+        template<class To>
+        static bool query_interface(interface_id_t id, void const *&result) {
+            if constexpr (has_interface_id<To>) {
+                if (interface_id_equal(id, interface_id_v<To>)) {
+                    result = vtable_upcast_from<To, Face>(vtable_for_v<Impl, Face>);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool query(interface_id_t id, void const *&result) {
+            return (query_interface<Tos>(id, result) || ...);
+        }
+    };
+
+public:
     static constexpr type_info content = {
         .version = FACET_TYPE_INFO_VERSION,
         .query = [](void *, interface_id_t id) -> void const * {
-            template for (constexpr std::meta::info face : detail::type_list_v<Faces...>) {
-                using Face = typename[:face:];
-                constexpr vtable_t<Face> const *vt = vtable_for_v<Impl, Face>;
-                template for (constexpr std::meta::info to : detail::interface_closure_v<Face>) {
-                    using To = typename[:to:];
-                    if constexpr (has_interface_id<To>) {
-                        if (interface_id_equal(id, interface_id_v<To>)) {
-                            return vtable_upcast_from<To, Face>(vt);
-                        }
-                    }
-                }
-            }
-            return nullptr;
+            void const *result = nullptr;
+            (query_face<Faces>::query(id, result) || ...);
+            return result;
         },
     };
 

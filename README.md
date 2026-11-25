@@ -1,10 +1,10 @@
 # Facet
 
-**Non-intrusive, reflection-driven type erasure for C++26.**
+**Non-intrusive, declarative type erasure for C++20 and C++26.**
 
-Facet (namespace `fct`) is a header-only library that exposes ordinary objects through declarative interfaces. You describe an interface as an ordinary annotated `struct` that declares member functions. Any type with matching operations can then be adapted into a small type-erased handle. The implementation doesn't inherit from the interface, doesn't declare `virtual` functions and doesn't need to know the interface exists.
+Facet (namespace `fct`) is a header-only library that exposes ordinary objects through declarative interfaces. You can describe an interface with the core protocol, the declarations in `<facet/macros.hpp>`, or C++26 static reflection. Any type with matching operations can then be adapted into a small type-erased handle. The implementation doesn't inherit from the interface, doesn't declare `virtual` functions and doesn't need to know the interface exists.
 
-At compile time, C++26 static reflection generates the function tables, dispatch thunks, inheritance links, runtime-query metadata and call-site facades. Because interface declarations and implementation types are kept separate, their authors can evolve them independently.
+At compile time, Facet generates function tables, dispatch thunks, inheritance links, runtime-query metadata and call-site facades from the selected declaration path. Because interface declarations and implementation types are kept separate, their authors can evolve them independently.
 
 ```cpp
 struct [[=fct::spec]] INamed {
@@ -47,8 +47,9 @@ assert(named->name() == "Rex");
     - [6.9 Crossing binary boundaries](#69-crossing-binary-boundaries)
     - [6.10 Interface evolution and versioning](#610-interface-evolution-and-versioning)
     - [6.11 Manually defined interfaces](#611-manually-defined-interfaces)
-    - [6.12 Ownership: unique, shared and borrowed handles](#612-ownership-unique-shared-and-borrowed-handles)
-      - [6.12.1 Shared from self](#6121-shared-from-self)
+    - [6.12 Macro-defined interfaces](#612-macro-defined-interfaces)
+    - [6.13 Ownership: unique, shared and borrowed handles](#613-ownership-unique-shared-and-borrowed-handles)
+      - [6.13.1 Shared from self](#6131-shared-from-self)
   - [7. API reference](#7-api-reference)
     - [7.1 `<facet.hpp>`](#71-facethpp)
       - [7.1.1 Handles](#711-handles)
@@ -59,9 +60,10 @@ assert(named->name() == "Rex");
     - [7.2 `<facet/reflection.hpp>`](#72-facetreflectionhpp)
       - [7.2.1 Spec annotations](#721-spec-annotations)
       - [7.2.2 Generated protocol](#722-generated-protocol)
-    - [7.3 `<facet/memory.hpp>`](#73-facetmemoryhpp)
-      - [7.3.1 Wrappers](#731-wrappers)
-      - [7.3.2 Factories and shared from self](#732-factories-and-shared-from-self)
+    - [7.3 `<facet/macros.hpp>`](#73-facetmacroshpp)
+    - [7.4 `<facet/memory.hpp>`](#74-facetmemoryhpp)
+      - [7.4.1 Wrappers](#741-wrappers)
+      - [7.4.2 Factories and shared from self](#742-factories-and-shared-from-self)
   - [8. Design and implementation](#8-design-and-implementation)
     - [8.1 Handle layout](#81-handle-layout)
     - [8.2 Interface protocol](#82-interface-protocol)
@@ -87,14 +89,16 @@ assert(named->name() == "Rex");
 - **ABI-oriented layout.** Handles and function tables are simple, trivially copyable structures of pointers that can be passed across shared-library boundaries.
 - **Interface evolution.** `[[=fct::version(n)]]` and `[[=fct::since(n, fallback)]]` let newer clients safely use objects built against older interface revisions.
 - **Optional ownership wrappers.** `unique_facets`, `shared_facets` (atomic reference counting) and `borrowed_facets` are available, along with `enable_shared_from_self`.
-- **Open protocol.** The reflection path is only one source of the interface protocol. You can define any interface by hand with a small set of class-template specializations, and mix manual and reflected interfaces freely.
+- **C++20 core.** Handles, conversions, facades and the protocol primitives are available without `<meta>` or compiler reflection support.
+- **Macro declarations.** `FACET_METHOD` and `fct::interface` cover hand-written interfaces while keeping vtable generation and facade composition in the library.
+- **Open protocol.** Core protocol specializations can be used when a custom vtable layout or dispatch path is required, and they combine with macro and reflected interfaces.
 - **Header-only, with no build-system or binary dependencies.**
 
 ---
 
 ## 2. Requirements
 
-Facet relies on C++26 language and library features. Choosing a C++23 or C++26 language mode is not enough by itself. The compiler and standard library must actually implement the following:
+Facet's core and macro declarations require C++20. The reflection header and reflected examples require C++26 language and library support. Choosing a C++23 or C++26 language mode is not enough by itself. The compiler and standard library must actually implement the following for the reflection path:
 
 | Feature | Paper |
 | --- | --- |
@@ -107,9 +111,9 @@ Facet relies on C++26 language and library features. Choosing a C++23 or C++26 l
 | Pack indexing (`Ts...[N]`) | P2662 |
 | Placeholder variables named `_` | P2169 |
 
-**Compiler:** should have C++26 static reflection support, such as GCC 16.1 or newer, invoked with `-std=c++26 -freflection`.
+**Compiler for reflection:** should have C++26 static reflection support, such as GCC 16.1 or newer, invoked with `-std=c++26 -freflection`.
 
-**Standard library:** must provide `<meta>`, `std::atomic_ref` and the C++23/26 ranges facilities.
+**Standard library:** the core needs C++20 library support and `std::atomic_ref`. The reflection path also needs `<meta>`, `std::define_static_array` and the reflection-era ranges facilities.
 
 ---
 
@@ -119,13 +123,20 @@ Facet is header-only. Add the [`include/`](./include/) directory to your compile
 
 | Header | Purpose |
 | --- | --- |
-| [`<facet.hpp>`](./include/facet.hpp) | Core: handles, interface protocol, facades, conversions, runtime queries, and the `id` and `local_id` annotations |
-| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Protocol generated by reflection from `[[=fct::spec]]` interfaces, plus the `spec`, `version`, `since` and `dispatch_via` annotations |
+| [`<facet.hpp>`](./include/facet.hpp) | Core handles, protocol primitives, facades, conversions and runtime queries |
+| [`<facet/macros.hpp>`](./include/facet/macros.hpp) | `FACET_METHOD` and `fct::interface` declarations for hand-written interfaces |
+| [`<facet/reflection.hpp>`](./include/facet/reflection.hpp) | Reflection-generated protocol from `[[=fct::spec]]` interfaces, plus reflection annotations and ids |
 | [`<facet/memory.hpp>`](./include/facet/memory.hpp) | Unique, shared and borrowed ownership wrappers and factories |
 
 Both `<facet/reflection.hpp>` and `<facet/memory.hpp>` include `<facet.hpp>`.
 
-Compile a translation unit:
+Compile a program that uses the core protocol or macro declarations with a C++20 compiler:
+
+```sh
+g++ -std=c++20 -Iinclude your_macro_program.cpp -o your_macro_program
+```
+
+Compile a reflected translation unit with a C++26 compiler:
 
 ```sh
 g++-16 -std=c++26 -freflection -Iinclude main.cpp -o main
@@ -136,11 +147,14 @@ A minimal CMake integration might look like this:
 ```cmake
 add_library(facet INTERFACE)
 target_include_directories(facet INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_compile_features(facet INTERFACE cxx_std_26)
-target_compile_options(facet INTERFACE -freflection)
+target_compile_features(facet INTERFACE cxx_std_20)
 
 add_executable(my_app main.cpp)
 target_link_libraries(my_app PRIVATE facet)
+
+# Required by targets that include <facet/reflection.hpp>.
+target_compile_features(my_app PRIVATE cxx_std_26)
+target_compile_options(my_app PRIVATE -freflection)
 ```
 
 ---
@@ -282,7 +296,7 @@ assert(erased->count() == 43);
 - The result is a `typed_facets<Impl, Faces...>`. The concrete type stays known until you convert to `facets<...>`.
 - `as_facets` compiles only if `fct::has_vtable_for<Impl, Face>` holds for every listed interface. You can check this yourself with `static_assert(fct::has_vtable_for<Counter, ICounter>);`.
 - The interfaces listed in `as_facets` also decide what the object can later be **queried** for (see [Section 6.8](#68-interface-identity-and-runtime-queries)).
-- Handles are **non-owning**, nullable and trivially copyable. The object must outlive every handle that refers to it. For ownership, see [Section 6.12](#612-ownership-unique-shared-and-borrowed-handles).
+- Handles are **non-owning**, nullable and trivially copyable. The object must outlive every handle that refers to it. For ownership, see [Section 6.13](#613-ownership-unique-shared-and-borrowed-handles).
 - A default-constructed handle is null. `explicit operator bool` returns `true` only when the object pointer and every vtable pointer are non-null.
 
 One handle can expose several independent interfaces:
@@ -422,7 +436,7 @@ Ordinary non-static member functions are the usual way to implement an interface
   };
   ```
 
-- **Access to the handle itself**, for example to return `fct::shared_from(self)` (see [Section 6.12](#612-ownership-unique-shared-and-borrowed-handles)).
+- **Access to the handle itself**, for example to return `fct::shared_from(self)` (see [Section 6.13](#613-ownership-unique-shared-and-borrowed-handles)).
 
 > **Const-correctness:** non-static member candidates are called through a non-const `Impl*`. A `const` qualifier on the spec method is not enforced on the implementation.
 
@@ -647,13 +661,13 @@ Guidelines:
 
 - **Use explicit ids.** `local_id` is valid only in the translation unit that declares it.
 - **Check the types in method signatures.** Every parameter and return type must have a compatible ABI on both sides. Be especially careful with standard-library types across different toolchains or library builds.
-- **Ownership crosses safely.** An owning wrapper from [Section 6.12](#612-ownership-unique-shared-and-borrowed-handles) always destroys its object through a function pointer stored in its control block. Destruction therefore runs code from the module that created the object.
+- **Ownership crosses safely.** An owning wrapper from [Section 6.13](#613-ownership-unique-shared-and-borrowed-handles) always destroys its object through a function pointer stored in its control block. Destruction therefore runs code from the module that created the object.
 - **`fct::type_info` carries its own version** (`FACET_TYPE_INFO_VERSION`, currently `0`), so the type-information record can evolve later.
-- **Plan for change.** If the interfaces may change on one side but not the other, follow Section 10.
+- **Plan for change.** If the interfaces may change on one side but not the other, follow Section 6.10.
 
 ### 6.10 Interface evolution and versioning
 
-Generated vtables start with a `version` field taken from `[[=fct::version(n)]]`. A method marked `[[=fct::since(n, fallback)]]` is called through the vtable only if `vtable->version >= n`. Otherwise the caller runs `fallback(self, args...)` instead and never reads the missing slot. Here `self` is the type-erased `facets<Face>`.
+Generated vtables start with a `version` field taken from `[[=fct::version(n)]]`. A method marked `[[=fct::since(n, fallback)]]` is called through the vtable only if `vtable->version >= n`. Otherwise the caller runs `fallback(self, args...)` instead and never reads the missing slot. Here `self` is the type-erased `facets<Face>`. Macro interfaces use `Face::version` and `type_name<Signature>::since<Version, Fallback>` for the same mechanism.
 
 ```cpp
 struct [[=fct::spec]]
@@ -686,20 +700,29 @@ Rules for compatible evolution:
 
 ### 6.11 Manually defined interfaces
 
-Reflected specs are the recommended way to declare interfaces. When reflection is not available for an interface, or you want full control over the vtable layout, you can describe the interface explicitly. Specialize the protocol templates in namespace `fct`:
+When a custom vtable layout or a custom dispatch path is required, specialize the core protocol directly in namespace `fct`:
 
 | Specialization | Provides |
 | --- | --- |
 | `vtable<I>` | `type`: the function-table type. You choose its layout. |
-| `direct_bases<I>` | `value`: a `std::array` or span of `direct_base_t`, built with `direct_base<Base>(converter)`. The converter maps `vtable_t<I> const*` to `vtable_t<Base> const*`. |
-| `direct_methods<I>` | `value`: a `std::array` or span of `direct_method_t`, built with `direct_method(name, invoker)`. The invoker takes `facets<I>` followed by the method's arguments. |
+| `direct_bases<I>` | `type`: a `fct::type_list` of `direct_base<Base, Converter>` entries. Each converter maps `vtable_t<I> const*` to `vtable_t<Base> const*`. |
+| `direct_methods<I>` | `type`: a `fct::type_list` of `direct_method<Name, Invoker>` entries. The invoker takes `facets<I>` followed by the method arguments. `Name` provides `template<class Slot> bind`, which defines the facade member. |
 | `vtable_for<Impl, I>` | `static constexpr vtable_t<I> const* value`: the table used when `Impl` is adapted as `I`. |
 | `interface_id<I>` *(optional)* | `static constexpr interface_id_t value`: enables runtime queries for `I`. |
 
-Manual interfaces can be incomplete tag types. In the example below, base tables are embedded by value rather than referenced by pointer:
+Manual interfaces can be incomplete tag types. The [`manual`](./examples/manual/) example uses embedded base tables, hand-written names and invokers, a reflected interface derived from a manual interface, and a template interface.
 
 ```cpp
-struct [[=fct::id("facet.tests.manual.root")]] IManualRoot; // declaration only
+struct IManualRoot;
+
+struct root_value_name {
+    template<class Slot>
+    struct bind {
+        int root_value() const {
+            return Slot(this)();
+        }
+    };
+};
 
 namespace fct {
 template<> struct vtable<IManualRoot> {
@@ -709,15 +732,13 @@ template<> struct vtable<IManualRoot> {
 };
 
 template<> struct direct_bases<IManualRoot> {
-    static constexpr std::array<direct_base_t, 0> value = {};
+    using type = type_list<>;
 };
 
 template<> struct direct_methods<IManualRoot> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("root_value", [](facets<IManualRoot> h) {
-            return fct::get<0>(h.vtables)->self->root_value(h.data);
-        }),
-    };
+    using type = type_list<direct_method<root_value_name, [](facets<IManualRoot> h) {
+        return h.template vtable_at<0>()->root_value(h.get());
+    }>>;
 };
 
 template<class Impl> struct vtable_for<Impl, IManualRoot> {
@@ -737,22 +758,22 @@ A derived manual interface declares its bases with a converter:
 
 ```cpp
 template<> struct direct_bases<IManualChild> {
-    static constexpr std::array<direct_base_t, 1> value = {
-        direct_base<IManualRoot>([](vtable_t<IManualChild> const* t) {
-            return &t->root;
-        }),
-    };
+    using type = type_list<direct_base<IManualRoot, [](vtable_t<IManualChild> const* t) {
+        return &t->root;
+    }>>;
 };
 ```
 
 For a manual interface template, you can derive an id for each specialization from the reflected type name:
 
 ```cpp
+namespace fct {
 template<typename T>
 struct interface_id<IManualValue<T>> {
     static constexpr interface_id_t value =
         static_string::make(std::meta::display_string_of(^^IManualValue<T>)).data;
 };
+}
 ```
 
 The spelling produced by `display_string_of` depends on the compiler. Use explicit, stable ids for interfaces that cross a shared-library, compiler or independently versioned build boundary.
@@ -760,13 +781,83 @@ The spelling produced by `display_string_of` depends on the compiler. Use explic
 Guidelines:
 
 - **Keep tables alive.** Tables, converters and invokers must stay valid for as long as any handle refers to them. Use static-storage `constexpr` tables.
-- **Keep names and signatures consistent.** Invoker names and signatures should match the facade you intend to expose.
-- **Use Facet's tuple helpers.** Handles store vtable pointers in `fct::tuple`, so access them with `fct::get<I>(handle.vtables)` or `fct::apply`, not `std::get` or `std::apply`.
-- **Mix freely.** Manual and reflected interfaces combine without restrictions. For example, `struct [[=fct::spec]] IDerived : IManualBase { ... };` is valid.
+- **Keep names and signatures consistent.** A manual name type defines the facade member, and its invokers should accept the matching `facets<I>` and arguments.
+- **Use Facet's tuple helpers.** Vtable storage uses `fct::tuple`, and custom invokers can access the selected table with `handle.vtable_at<I>()` or `fct::apply`.
+- **Mix freely.** Core, macro and reflected interfaces follow the same protocol. For example, `struct [[=fct::spec]] IDerived : IManualBase { ... };` is valid.
 
 ---
 
-### 6.12 Ownership: unique, shared and borrowed handles
+### 6.12 Macro-defined interfaces
+
+`<facet/macros.hpp>` provides a separate declaration path for interfaces described with reusable method-name types. Define each operation name once with `FACET_METHOD`, then reuse the resulting alias in every interface that exposes that operation:
+
+```cpp
+#include <cassert>
+#include <facet/macros.hpp>
+
+FACET_METHOD(root_value, root_value);
+FACET_METHOD(read, read);
+
+struct IRoot : fct::interface<root_value<int()>> {};
+struct IReader : fct::interface<IRoot, read<int()>> {};
+
+struct Reader {
+    int root_value() const { return 10; }
+    int read() const { return 20; }
+};
+
+Reader reader;
+auto handle = fct::as_facets<IReader>(&reader);
+assert(handle->root_value() == 10);
+assert(handle->read() == 20);
+```
+
+`fct::interface<Entries...>` generates the vtable layout and protocol specializations for its entries. An entry can be a base interface or a method alias. Entries stay in declaration order, so append new methods when an interface must evolve across a binary boundary.
+
+The method alias accepts a function signature:
+
+```cpp
+FACET_METHOD(quote, quote);
+
+using Quote = quote<double(double)>;
+struct IQuote : fct::interface<Quote> {};
+```
+
+The default dispatcher calls the implementation member with the name supplied to `FACET_METHOD`. A custom dispatcher and a version fallback are available through the method alias:
+
+```cpp
+FACET_METHOD(value, value);
+FACET_METHOD(value_after_upgrade, value_after_upgrade);
+
+using ValueAfterUpgrade = value_after_upgrade<int(int)>::since<2, [](auto self, int delta) {
+    return self->value() + delta;
+}>;
+
+struct IRevisioned : fct::interface<value<int()>, ValueAfterUpgrade> {
+    static constexpr fct::interface_version_t version = 2;
+};
+```
+
+Use `type_name<Signature>::dispatch_via<callable>` when an implementation needs an adapter. The callable receives `typed_facets<Impl, Face>` followed by the method arguments.
+
+Runtime ids for macro interfaces use a manual `interface_id` specialization:
+
+```cpp
+struct IRoot : fct::interface<root_value<int()>> {};
+
+namespace fct {
+template<>
+struct interface_id<IRoot> {
+    static constexpr interface_id_t value = "vendor.product.IRoot";
+};
+}
+```
+
+The same `FACET_METHOD` declaration must be reused when the same operation participates in overload resolution across interfaces. Method names are represented by types in the facade.
+
+---
+
+### 6.13 Ownership: unique, shared and borrowed handles
 
 `<facet/memory.hpp>` adds owning wrappers around handles. Each wrapper stores a handle and a pointer to a heap-allocated control block that contains the object.
 
@@ -803,7 +894,7 @@ All wrappers forward `operator->`, `operator*`, `as<Face>()` and `get()`. `handl
 
 > **`borrowed_facets` is not a weak pointer.** It doesn't keep the control block or the object alive, and it can't detect that the object has expired. Keep a shared owner alive while you use a borrowed view or turn it back into a shared handle. Otherwise the view dangles.
 
-#### 6.12.1 Shared from self
+#### 6.13.1 Shared from self
 
 An implementation that derives from `fct::enable_shared_from_self<Self>` and is created with `fct::make_shared` can get owning or borrowed handles to itself from a typed handle. This is usually done in a static interface-aware function:
 
@@ -859,13 +950,11 @@ All entities are in namespace `fct`.
 | --- | --- |
 | `vtable<Face>::type`, `vtable_t<Face>` | Function-table type. |
 | `vtable_for<Impl, Face>::value`, `vtable_for_v`, `has_vtable_for` | The vtable for an implementation, and a concept that tests whether it exists. |
-| `direct_method(name, invoker)` / `direct_method_t` | Represents a direct method entry for the interface. |
-| `direct_methods<Face>::value`, `direct_methods_v<Face>` | Range of `direct_method_t`, representing all direct methods of `Face`. |
-| `direct_base<Base>(converter)` / `direct_base_t` | Represents a direct base entry for the interface. |
-| `direct_bases<Face>::value`, `direct_bases_v<Face>` | Range of `direct_base_t`, representing all direct bases of `Face`. |
+| `direct_method<Name, Invoker>` | Represents a direct method entry for the interface. `Name` supplies the facade binding and `Invoker` is the compile-time callable. |
+| `direct_methods<Face>::type`, `direct_methods_t` | Type list of the direct method entries for `Face`. |
+| `direct_base<Base, Converter>` | Represents a direct base entry for the interface. `Converter` maps the derived vtable to the base vtable. |
+| `direct_bases<Face>::type`, `direct_bases_t` | Type list of the direct base entries for `Face`. |
 | `interface_id<Face>::value`, `interface_id_v`, `has_interface_id` | Interface id (`interface_id_t`, which is `char const*`). |
-| `id("id")` / `id_t` | Stable interface id, compared by pointer or by string. |
-| `local_id` / `local_id_t` | Interface id valid within one translation unit, compared by address only. |
 | `interface_id_equal(a, b)` | Pointer equality, otherwise equality of non-empty strings. |
 | `type_info` | Type information record for an object, containing the version and query function. |
 | `type_info_for<Impl, Faces...>`, `type_info_for_v`, `has_type_info_for` | Generated type information for the closure of `Faces`. |
@@ -885,9 +974,8 @@ All entities are in namespace `fct`.
 
 | Entity | Description |
 | --- | --- |
-| `tuple<Ts...>` | Aggregate tuple with a predictable layout, defined through reflection. Used to store vtables. |
+| `tuple<Ts...>` | Recursive aggregate tuple with a predictable layout. Used to store vtables. |
 | `get<I>(t)`, `apply(f, t)` | Element access and application for `fct::tuple`. Don't use `std::get` or `std::apply`. |
-| `static_string` | Null-terminated string with static storage. Build one with `static_string::make(sv)` (`consteval`) and read it with `view()`. |
 
 ### 7.2 `<facet/reflection.hpp>`
 
@@ -896,6 +984,8 @@ All entities are in namespace `fct`.
 | Entity | Applies to | Description |
 | --- | --- | --- |
 | `spec` / `spec_t` | Interface | Marks a class as a reflected interface spec. |
+| `id("id")` / `id_t` | Interface | Stable interface id, compared by pointer or by string. |
+| `local_id` / `local_id_t` | Interface | Interface id that is valid within one translation unit. |
 | `version(n)` / `version_t` | Interface | Interface revision (`interface_version_t`, which is `std::uint64_t`). Default 0. |
 | `since(n, fallback)` / `since_t` | Method | Method added in revision `n`. Callers run `fallback(facets<Face>, args...)` when the vtable is older. |
 | `dispatch_via(f)` / `dispatch_via_t` | Method | Custom dispatcher, called as `f(typed_facets<Impl, Face>, args...)`. |
@@ -904,9 +994,22 @@ All entities are in namespace `fct`.
 
 For every `[[=fct::spec]]` type `Face`, this header provides `vtable<Face>`, `direct_methods<Face>` and `direct_bases<Face>`. It also provides `vtable_for<Impl, Face>` (constrained so that it exists only when every base and method can be satisfied). See [Generated vtables](#83-generated-vtables).
 
-### 7.3 `<facet/memory.hpp>`
+`static_string` stores a null-terminated string in static storage. Build one with `static_string::make(sv)` (`consteval`) and read it with `view()`.
 
-#### 7.3.1 Wrappers
+### 7.3 `<facet/macros.hpp>`
+
+| Entity | Description |
+| --- | --- |
+| `FACET_METHOD(type_name, member_name)` | Declares a reusable method-name type and a signature alias. The alias is used as `type_name<Return(Args...)>`. |
+| `interface<Entries...>` | Generates a vtable layout and protocol specializations for base-interface and method entries. |
+| `type_name<Signature>::dispatch_via<Dispatcher>` | Creates a method entry with a custom implementation dispatcher. |
+| `type_name<Signature>::since<Version, Fallback>` | Creates a method entry with a version fallback. |
+
+The same `FACET_METHOD` declaration must be reused when the same operation participates in overload resolution across interfaces. Method names are represented by types in the facade.
+
+### 7.4 `<facet/memory.hpp>`
+
+#### 7.4.1 Wrappers
 
 | Entity | Description |
 | --- | --- |
@@ -914,9 +1017,9 @@ For every `[[=fct::spec]]` type `Face`, this header provides `vtable<Face>`, `di
 | `shared_typed_facets<Impl, Faces...>`, `shared_facets<Faces...>`, `shared_opaque` | Shared ownership with an atomic reference count. |
 | `borrowed_typed_facets<Impl, Faces...>`, `borrowed_facets<Faces...>`, `borrowed_opaque` | Borrowed view of a shared object. |
 
-Every wrapper provides `operator->`, `operator*`, `as<Face>()`, `get()`, `vtable_at<I>()`, `explicit operator bool` and `handle()`. `unique` and `shared` also provide `swap()`. For the conversions between wrappers, see [Section 6.12](#612-ownership-unique-shared-and-borrowed-handles).
+Every wrapper provides `operator->`, `operator*`, `as<Face>()`, `get()`, `vtable_at<I>()`, `explicit operator bool` and `handle()`. `unique` and `shared` also provide `swap()`. For the conversions between wrappers, see [Section 6.13](#613-ownership-unique-shared-and-borrowed-handles).
 
-#### 7.3.2 Factories and shared from self
+#### 7.4.2 Factories and shared from self
 
 | Entity | Description |
 | --- | --- |
@@ -938,24 +1041,24 @@ typed_facets<Impl, F1, ..., Fn>
 | Impl* data            | ----> object pointer
 | type_info const* rtti | ----> version + query(void*, id)
 | vtable_t<F1> const*   | --+
-| ...                   | --+-> fct::tuple (aggregate defined through reflection)
+| ...                   | --+-> fct::tuple (recursive aggregate)
 | vtable_t<Fn> const*   | --+
 +-----------------------+
 ```
 
-A handle is `n + 2` pointers wide, standard-layout and trivially copyable. `fct::tuple` is an aggregate generated with `std::meta::define_aggregate`. Unlike `std::tuple`, its layout is predictable and stable, which is why it is used for storage that crosses binary boundaries.
+A handle is `n + 2` pointers wide, standard-layout and trivially copyable. `fct::tuple` is a recursive aggregate with predictable layout. Unlike `std::tuple`, its layout is stable, which is why it is used for storage that crosses binary boundaries.
 
 ### 8.2 Interface protocol
 
 The core header knows nothing about specs. It reads only these specializations:
 
 - `vtable<Face>::type`
-- `direct_methods<Face>::value` (name and invoker)
-- `direct_bases<Face>::value` (base type and vtable converter)
+- `direct_methods<Face>::type` (name and invoker)
+- `direct_bases<Face>::type` (base type and vtable converter)
 - `vtable_for<Impl, Face>::value`
 - optionally, `interface_id<Face>::value`
 
-`reflection.hpp` is one source of these specializations, constrained on `is_spec`. Hand-written specializations are another. The *interface closure* of a face is the face plus all of its direct and indirect bases, collected depth-first without duplicates. It's computed only through `direct_bases`, so manual and reflected interfaces combine without special cases.
+`reflection.hpp`, `<facet/macros.hpp>` and hand-written specializations are sources of these protocol types. The *interface closure* of a face is the face plus all of its direct and indirect bases, collected depth-first without duplicates. It's computed only through `direct_bases`, so core, macro and reflected interfaces combine through the same path.
 
 ### 8.3 Generated vtables
 
@@ -985,6 +1088,8 @@ Each `(Impl, Face)` pair gets one `static constexpr` table instance. Its method 
 
 On the calling side, each method has an *invoker* that loads the handle's first vtable. If the method carries `since(n, fallback)` and the table's `version` is less than `n`, the invoker calls the fallback. Otherwise it calls the slot.
 
+For `fct::interface<Entries...>`, the generated table contains the version followed by one tuple entry for each base or method entry. A base entry stores its base vtable pointer. A method entry stores a function pointer with the signature `R (*)(facets<Face>, Args...)`.
+
 ### 8.4 Implementation lookup
 
 For each `Impl`, Facet collects the public static and public non-static member functions of `Impl` and its public bases once (`static_candidates_v` and `member_candidates_v`). For each method, it then:
@@ -997,12 +1102,12 @@ The precedence is described in [Section 6.4](#64-implementation-lookup-rules).
 
 ### 8.5 Facades
 
-`combined_facade<Self, Faces...>` is an aggregate generated in a `consteval` block. For each distinct method name in the interface closure, it has one empty `[[no_unique_address]]` member called a *slot*. Each slot is a class template parameterized by all the invokers that share that name. Its `operator()`:
+`combined_facade<Self, Faces...>` is a statically composed class. It inherits one `Name::bind<Slot>` base for each distinct method-name type in the interface closure. Each slot collects the invokers that share that name type. Its `operator()`:
 
-1. Finds the handle's address from its own address, using `std::meta::offset_of`.
-2. Calls an overload set built from all of those invokers, passing the handle and the forwarded arguments.
+1. Recovers the handle through the bound name object.
+2. Calls an overload set built from the matching invokers, passing the handle and the forwarded arguments.
 
-Each invoker takes `facets<Face>` as its first parameter, and the handle converts to that type by implicit upcast. Normal C++ overload resolution then picks the right interface method. `typed_facets::operator->` simply reinterprets the handle's address as a pointer to this facade. `as<Face>()` does the same with a single-interface facade.
+Each invoker takes `facets<Face>` as its first parameter, and the handle converts to that type by implicit upcast. Normal C++ overload resolution then picks the right interface method. `FACET_METHOD` supplies a name type with the required binding, and reflection creates equivalent name types from method identifiers. `typed_facets::operator->` reinterprets the handle's address as a pointer to this facade. `as<Face>()` does the same with a single-interface facade.
 
 ### 8.6 Upcasts
 

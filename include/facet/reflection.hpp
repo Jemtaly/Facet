@@ -16,12 +16,124 @@
 // ============================================================================
 
 namespace fct {
+struct static_string {
+    char const *data;
+    std::size_t size;
+
+    template<char... Cs>
+    static constexpr char data_of[] = {Cs..., '\0'};
+
+    template<char... Cs>
+    static constexpr size_t size_of = sizeof...(Cs);
+
+    template<char... Cs>
+    static constexpr static_string value_of = {data_of<Cs...>, size_of<Cs...>};
+
+    static consteval static_string make(std::string_view sv) {
+        std::vector<std::meta::info> cs;
+        for (char c : sv) {
+            cs.push_back(std::meta::reflect_constant(c));
+        }
+        return std::meta::extract<static_string>(std::meta::substitute(^^value_of, cs));
+    }
+
+    constexpr std::string_view view() const noexcept {
+        return {data, size};
+    }
+};
+
+namespace detail {
+namespace meta = std::meta;
+
+consteval meta::access_context all_ctx() {
+    return meta::access_context::unchecked();
+}
+
+consteval meta::access_context pub_ctx() {
+    return meta::access_context::unprivileged();
+}
+
+template<class T>
+inline constexpr std::span<meta::info const> all_data_members_v =
+    std::define_static_array(meta::nonstatic_data_members_of(^^T, all_ctx()));
+
+template<static_string Name>
+struct string_method_name {
+    template<class Slot>
+    struct bind_def {
+        using type = struct {};
+
+        struct field {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) operator()(Args &&...args) const {
+                // The generated name object and its sole member are pointer-interconvertible.
+                return Slot(reinterpret_cast<type const *>(this))(std::forward<Args>(args)...);
+            }
+        };
+
+        consteval {
+            meta::define_aggregate(meta::dealias(^^type), {
+                meta::data_member_spec(^^field, {.name = Name.view(), .no_unique_address = true}),
+            });
+        }
+    };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
+};
+
+consteval meta::info method_name(std::string_view name) {
+    return meta::substitute(^^string_method_name, {
+        meta::reflect_constant(static_string::make(name)),
+    });
+}
+}
+
+// [[=local_id]] assigns a non-empty id used to find the interface during
+// runtime cross-casts, but it is only valid within the current translation
+// unit.
+struct local_id_t {};
+
+inline constexpr local_id_t local_id{};
+
+// [[=id("...")]] assigns a non-empty id used to find the interface during
+// runtime cross-casts.
+struct id_t {
+    static_string value;
+};
+
+consteval id_t id(std::string_view value) {
+    return {static_string::make(value)};
+}
+
+namespace detail {
+template<class Face>
+concept annotated_local_id = !meta::annotations_of_with_type(^^Face, ^^local_id_t).empty();
+
+template<class Face>
+concept annotated_id = !meta::annotations_of_with_type(^^Face, ^^id_t).empty();
+
+inline consteval interface_id_t get_interface_id(meta::info face) {
+    auto annotations = meta::annotations_of_with_type(face, ^^id_t);
+    return meta::extract<id_t>(annotations[0]).value.data;
+}
+}
+
+template<detail::annotated_local_id Face>
+struct interface_id<Face> {
+    static constexpr char value[] = "";
+};
+
+template<detail::annotated_id Face>
+struct interface_id<Face> {
+    static constexpr interface_id_t value = detail::get_interface_id(^^Face);
+};
+
 // [[=spec]] marks a type as a facet interface specification.
 struct spec_t {};
 
 inline constexpr spec_t spec{};
-
-using interface_version_t = std::uint64_t;
 
 // [[=version(n)]] sets the version recorded in the generated function table;
 // it defaults to zero when omitted.
@@ -290,39 +402,29 @@ struct from_spec_def {
     static constexpr automatic_method_invoker_t<Method, Member> automatic_method_invoker{};
 
     struct direct_members_t {
-        std::span<direct_base_t const> bases;
-        std::span<direct_method_t const> methods;
+        meta::info bases;
+        meta::info methods;
     };
 
     static constexpr direct_members_t direct_members = [] {
-        std::vector<direct_base_t> bases;
-        std::vector<direct_method_t> methods;
+        std::vector<meta::info> bases;
+        std::vector<meta::info> methods;
         for (auto [desc, member] : std::views::zip(field_descriptors, vtable_members)) {
             if (desc.kind == field_kind::base) {
-                bases.emplace_back(
-                    meta::type_of(desc.spec),
-                    meta::substitute(
-                        ^^automatic_base_converter,
-                        {
-                            meta::reflect_constant(desc.spec),
-                            meta::reflect_constant(member),
-                        }));
-            }
-            if (desc.kind == field_kind::method) {
-                methods.emplace_back(
-                    static_string::make(meta::identifier_of(desc.spec)),
-                    meta::substitute(
-                        ^^automatic_method_invoker,
-                        {
-                            meta::reflect_constant(desc.spec),
-                            meta::reflect_constant(member),
-                        }));
+                auto type = meta::type_of(desc.spec);
+                auto converter = meta::substitute(^^automatic_base_converter, {
+                    meta::reflect_constant(desc.spec), meta::reflect_constant(member),
+                });
+                bases.push_back(meta::substitute(^^direct_base, {type, converter}));
+            } else {
+                auto name = method_name(meta::identifier_of(desc.spec));
+                auto invoker = meta::substitute(^^automatic_method_invoker, {
+                    meta::reflect_constant(desc.spec), meta::reflect_constant(member),
+                });
+                methods.push_back(meta::substitute(^^direct_method, {name, invoker}));
             }
         }
-        return direct_members_t{
-            std::define_static_array(bases),
-            std::define_static_array(methods),
-        };
+        return direct_members_t{meta::substitute(^^type_list, bases), meta::substitute(^^type_list, methods)};
     }();
 
     template<class Impl>
@@ -450,7 +552,7 @@ struct from_spec_def {
 
             static R call(facets_type self, A... args)
                 requires(dispatcher != meta::info{}) && requires(typed_facets_type typed_self, A... args) {
-                    [:dispatcher:](typed_self, std::forward<A>(args)...);
+                    { [:dispatcher:](typed_self, std::forward<A>(args)...) } -> std::convertible_to<R>;
                 }
             {
                 typed_facets_type typed_self(self);
@@ -519,12 +621,12 @@ struct vtable<Spec> {
 
 template<detail::annotated_spec Spec>
 struct direct_methods<Spec> {
-    static constexpr auto const &value = detail::from_spec_def<Spec>::direct_members.methods;
+    using type = typename[:detail::from_spec_def<Spec>::direct_members.methods:];
 };
 
 template<detail::annotated_spec Spec>
 struct direct_bases<Spec> {
-    static constexpr auto const &value = detail::from_spec_def<Spec>::direct_members.bases;
+    using type = typename[:detail::from_spec_def<Spec>::direct_members.bases:];
 };
 
 template<class Impl, detail::annotated_spec Spec>

@@ -1,10 +1,65 @@
-#include <array>
 #include <cassert>
 
 #include <facet.hpp>
 #include <facet/reflection.hpp>
 
-// Interface tags
+namespace manual_names {
+struct root_value_name {
+    template<class Slot>
+    struct bind {
+        template<class... Args>
+            requires std::invocable<Slot, Args...>
+        decltype(auto) root_value(Args &&...args) const {
+            return Slot(this)(std::forward<Args>(args)...);
+        }
+    };
+};
+
+struct read_name {
+    template<class Slot>
+    struct bind {
+        template<class... Args>
+            requires std::invocable<Slot, Args...>
+        decltype(auto) read(Args &&...args) const {
+            return Slot(this)(std::forward<Args>(args)...);
+        }
+    };
+};
+
+struct count_name {
+    template<class Slot>
+    struct bind {
+        template<class... Args>
+            requires std::invocable<Slot, Args...>
+        decltype(auto) count(Args &&...args) const {
+            return Slot(this)(std::forward<Args>(args)...);
+        }
+    };
+};
+
+struct base_name {
+    template<class Slot>
+    struct bind {
+        template<class... Args>
+            requires std::invocable<Slot, Args...>
+        decltype(auto) base(Args &&...args) const {
+            return Slot(this)(std::forward<Args>(args)...);
+        }
+    };
+};
+
+struct value_name {
+    template<class Slot>
+    struct bind {
+        template<class... Args>
+            requires std::invocable<Slot, Args...>
+        decltype(auto) value(Args &&...args) const {
+            return Slot(this)(std::forward<Args>(args)...);
+        }
+    };
+};
+}
+
 struct[[= fct::id("facet.tests.manual.root")]] IManualRoot;
 struct[[= fct::id("facet.tests.manual.reader")]] IManualReader;
 struct[[= fct::id("facet.tests.manual.counter")]] IManualCounter;
@@ -31,71 +86,19 @@ struct vtable<IManualRoot> {
 
 template<>
 struct direct_bases<IManualRoot> {
-    static constexpr std::array<direct_base_t, 0> value = {};
+    using type = type_list<>;
 };
 
 template<>
 struct direct_methods<IManualRoot> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("root_value", [](facets<IManualRoot> handle) {
+    using type = type_list<direct_method<
+        manual_names::root_value_name,
+        [](facets<IManualRoot> handle) {
             return handle.template vtable_at<0>()->self->root_value(handle.get());
-        }),
-    };
+        }>>;
 };
 
-template<>
-struct vtable<IManualReader> {
-    struct type {
-        ReaderDispatch const *self;
-        vtable_t<IManualRoot> root;
-    };
-};
-
-template<>
-struct direct_bases<IManualReader> {
-    static constexpr std::array<direct_base_t, 1> value = {
-        direct_base<IManualRoot>([](vtable_t<IManualReader> const *table) {
-            return &table->root;
-        }),
-    };
-};
-
-template<>
-struct direct_methods<IManualReader> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("read", [](facets<IManualReader> handle) {
-            return handle.template vtable_at<0>()->self->read(handle.get());
-        }),
-    };
-};
-
-template<>
-struct vtable<IManualCounter> {
-    struct type {
-        CounterDispatch const *self;
-        vtable_t<IManualReader> reader;
-    };
-};
-
-template<>
-struct direct_bases<IManualCounter> {
-    static constexpr std::array<direct_base_t, 1> value = {
-        direct_base<IManualReader>([](vtable_t<IManualCounter> const *table) {
-            return &table->reader;
-        }),
-    };
-};
-
-template<>
-struct direct_methods<IManualCounter> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("count", [](facets<IManualCounter> handle) {
-            return handle.template vtable_at<0>()->self->count(handle.get());
-        }),
-    };
-};
-
-template<typename Impl>
+template<class Impl>
 struct vtable_for<Impl, IManualRoot> {
     static int root_value(void *data) {
         return static_cast<Impl *>(data)->value;
@@ -110,7 +113,33 @@ struct vtable_for<Impl, IManualRoot> {
     static constexpr vtable_t<IManualRoot> const *value = &table;
 };
 
-template<typename Impl>
+template<>
+struct vtable<IManualReader> {
+    struct type {
+        ReaderDispatch const *self;
+        vtable_t<IManualRoot> root;
+    };
+};
+
+template<>
+struct direct_bases<IManualReader> {
+    using type = type_list<direct_base<
+        IManualRoot,
+        [](vtable_t<IManualReader> const *table) {
+            return &table->root;
+        }>>;
+};
+
+template<>
+struct direct_methods<IManualReader> {
+    using type = type_list<direct_method<
+        manual_names::read_name,
+        [](facets<IManualReader> handle) {
+            return handle.template vtable_at<0>()->self->read(handle.get());
+        }>>;
+};
+
+template<class Impl>
 struct vtable_for<Impl, IManualReader> {
     static int read(void *data) {
         return static_cast<Impl *>(data)->value;
@@ -126,7 +155,33 @@ struct vtable_for<Impl, IManualReader> {
     static constexpr vtable_t<IManualReader> const *value = &table;
 };
 
-template<typename Impl>
+template<>
+struct vtable<IManualCounter> {
+    struct type {
+        CounterDispatch const *self;
+        vtable_t<IManualReader> reader;
+    };
+};
+
+template<>
+struct direct_bases<IManualCounter> {
+    using type = type_list<direct_base<
+        IManualReader,
+        [](vtable_t<IManualCounter> const *table) {
+            return &table->reader;
+        }>>;
+};
+
+template<>
+struct direct_methods<IManualCounter> {
+    using type = type_list<direct_method<
+        manual_names::count_name,
+        [](facets<IManualCounter> handle) {
+            return handle.template vtable_at<0>()->self->count(handle.get());
+        }>>;
+};
+
+template<class Impl>
 struct vtable_for<Impl, IManualCounter> {
     static int count(void *data) {
         return static_cast<Impl *>(data)->value;
@@ -151,8 +206,10 @@ void test_manual_interface() {
     Counter counter{42};
     auto handle = fct::as_facets<IManualCounter>(&counter);
     assert(handle->count() == 42);
+
     fct::facets<IManualReader> reader{handle};
     assert(reader->read() == 42);
+
     fct::facets<IManualRoot> root{reader};
     assert(root->root_value() == 42);
 
@@ -178,19 +235,19 @@ struct vtable<IManualBase> {
 
 template<>
 struct direct_methods<IManualBase> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("base", [](facets<IManualBase> handle) {
+    using type = type_list<direct_method<
+        manual_names::base_name,
+        [](facets<IManualBase> handle) {
             return handle.template vtable_at<0>()->base(handle.get());
-        }),
-    };
+        }>>;
 };
 
 template<>
 struct direct_bases<IManualBase> {
-    static constexpr std::array<direct_base_t, 0> value = {};
+    using type = type_list<>;
 };
 
-template<typename Impl>
+template<class Impl>
 struct vtable_for<Impl, IManualBase> {
     static int base(void *data) {
         return static_cast<Impl *>(data)->base();
@@ -225,38 +282,38 @@ void test_manual_interface_inheritance() {
     assert(handle->derived() == 34);
 }
 
-template<typename T>
+template<class T>
 struct IManualValue;
 
 namespace fct {
-template<typename T>
+template<class T>
 struct interface_id<IManualValue<T>> {
     static constexpr interface_id_t value =
         static_string::make(std::meta::display_string_of(^^IManualValue<T>)).data;
 };
 
-template<typename T>
+template<class T>
 struct vtable<IManualValue<T>> {
     struct type {
-        T (*value)(void *);;
+        T (*value)(void *);
     };
 };
 
-template<typename T>
+template<class T>
 struct direct_bases<IManualValue<T>> {
-    static constexpr std::array<direct_base_t, 0> value = {};
+    using type = type_list<>;
 };
 
-template<typename T>
+template<class T>
 struct direct_methods<IManualValue<T>> {
-    static constexpr std::array<direct_method_t, 1> value = {
-        direct_method("value", [](facets<IManualValue<T>> handle) {
+    using type = type_list<direct_method<
+        manual_names::value_name,
+        [](facets<IManualValue<T>> handle) {
             return handle.template vtable_at<0>()->value(handle.get());
-        }),
-    };
+        }>>;
 };
 
-template<typename Impl, typename T>
+template<class Impl, class T>
 struct vtable_for<Impl, IManualValue<T>> {
     static T invoke(void *data) {
         return static_cast<Impl *>(data)->value;
