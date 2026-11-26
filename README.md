@@ -814,7 +814,7 @@ assert(handle->read() == 20);
 
 `fct::interface<Self, Entries...>` takes the interface being declared as its first argument. Only the remaining arguments contribute vtable entries, one per base interface or method alias in declaration order. Append new methods when an interface must evolve across a binary boundary.
 
-The macro layout belongs to `Self`. A reflected interface can derive from a macro interface, for example `struct [[=fct::spec]] IDerived : IRoot { int extra(); };`. Reflection generates the table for `IDerived` and links it to the macro-generated table for `IRoot`.
+The macro layout belongs to `Self`. A macro interface can list a reflected base in `fct::interface<Self, Base, Entries...>`. A reflected interface can derive from a macro interface using ordinary C++ inheritance. Both forms support implicit handle upcasts, as shown in the [mixed example](./examples/mixed/main.cpp).
 
 The method alias accepts a function signature:
 
@@ -1143,6 +1143,8 @@ The [`examples/`](./examples/) directory contains programs that check themselves
 | [`overload`](./examples/overload/) | Overloads within one interface and across interfaces, interface-specific static dispatch, `as<Face>()` |
 | [`dispatch`](./examples/dispatch/) | Lookup precedence, defaults with `dispatch_via`, constrained dispatchers |
 | [`manual`](./examples/manual/) | Hand-written protocol specializations, embedded base tables, ids for template interfaces, mixing manual and reflected interfaces |
+| [`macros`](./examples/macros/) | C++20 macro interfaces, inherited overloads and custom dispatch with `dispatch_via` |
+| [`mixed`](./examples/mixed/) | Macro and reflected interfaces inheriting from each other in a three-level counter hierarchy |
 | [`memory`](./examples/memory/) | `make_unique`, `make_shared`, borrowed views, `enable_shared_from_self` |
 | [`abi`](./examples/abi/) | Passing handles across a shared-library boundary and querying with `id` |
 | [`evolution`](./examples/evolution/) | `version` and `since`: a level-2 host using a level-1 plugin |

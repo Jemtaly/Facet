@@ -80,6 +80,8 @@ try {
             "overload",
             "dispatch",
             "manual",
+            "macros",
+            "mixed",
             "memory"
         )) {
         Build-And-RunProject $project
