@@ -24,59 +24,68 @@ struct interface_layout;
 
 template<class Face, class... Entries, std::size_t... Indices>
 struct interface_layout<Face, type_list<Entries...>, std::index_sequence<Indices...>> {
-    template<class Base>
-    struct entry_traits {
-        using pointer = vtable_t<Base> const *;
+    using face_type = Face;
 
-        template<auto Converter>
-        using bases = type_list<direct_base<Base, Converter>>;
-        template<auto>
-        using methods = type_list<>;
+    template<class Base>
+    struct pointer {
+        using type = vtable_t<Base> const *;
     };
 
     template<class Name, class R, class... Args, auto Dispatch, class Since>
-    struct entry_traits<member_method<Name, R(Args...), Dispatch, Since>> {
-        using pointer = R (*)(facets<Face>, Args...);
-
-        template<auto>
-        using bases = type_list<>;
-        template<auto Invoker>
-        using methods = type_list<direct_method<Name, Invoker>>;
+    struct pointer<member_method<Name, R(Args...), Dispatch, Since>> {
+        using type = R (*)(facets<Face>, Args...);
     };
 
     template<class Entry>
-    using pointer_t = typename entry_traits<Entry>::pointer;
+    using pointer_t = typename pointer<Entry>::type;
 
-    struct table {
+    struct vtable_type {
         interface_version_t version;
         [[no_unique_address]] fct::tuple<pointer_t<Entries>...> entries;
     };
 
     template<std::size_t I, class Base>
-    struct entry_at {
-        constexpr pointer_t<Base> operator()(table const *vt) const noexcept {
-            return fct::get<I>(vt->entries);
-        }
+    struct entry_traits {
+        struct entry_type {
+            constexpr pointer_t<Base> operator()(vtable_type const *vt) const noexcept {
+                return fct::get<I>(vt->entries);
+            }
+        };
+
+        static constexpr entry_type entry = {};
+
+        using bases = type_list<direct_base<Base, entry>>;
+        using methods = type_list<>;
     };
 
     template<std::size_t I, class Name, class R, class... Args, auto Dispatch, class Since>
-    struct entry_at<I, member_method<Name, R(Args...), Dispatch, Since>> {
-        R operator()(facets<Face> self, Args... args) const {
-            auto const *table = self.template vtable_at<0>();
-            if constexpr (!std::is_void_v<Since>) {
-                if (table->version < Since::version) {
-                    return Since::fallback(self, std::forward<Args>(args)...);
+    struct entry_traits<I, member_method<Name, R(Args...), Dispatch, Since>> {
+        struct entry_type {
+            R operator()(facets<Face> self, Args... args) const {
+                auto const *vt = self.template vtable_at<0>();
+                if constexpr (!std::is_void_v<Since>) {
+                    if (vt->version < Since::version) {
+                        return Since::fallback(self, std::forward<Args>(args)...);
+                    }
                 }
+                return fct::get<I>(vt->entries)(self, std::forward<Args>(args)...);
             }
-            return fct::get<I>(table->entries)(self, std::forward<Args>(args)...);
-        }
+        };
+
+        static constexpr entry_type entry = {};
+
+        using bases = type_list<>;
+        using methods = type_list<direct_method<Name, entry>>;
     };
 
     template<std::size_t I, class Entry>
-    static constexpr entry_at<I, Entry> entry_at_v = {};
+    using bases_of = typename entry_traits<I, Entry>::bases;
 
-    using bases = concat_t<typename entry_traits<Entries>::template bases<entry_at_v<Indices, Entries>>...>;
-    using methods = concat_t<typename entry_traits<Entries>::template methods<entry_at_v<Indices, Entries>>...>;
+    template<std::size_t I, class Entry>
+    using methods_of = typename entry_traits<I, Entry>::methods;
+
+    using bases = concat_t<bases_of<Indices, Entries>...>;
+    using methods = concat_t<methods_of<Indices, Entries>...>;
 
     template<class Impl, class Entry>
     struct pointer_for;
@@ -102,53 +111,41 @@ struct interface_layout<Face, type_list<Entries...>, std::index_sequence<Indices
 
     template<class Impl>
         requires((requires { pointer_for<Impl, Entries>::value; }) && ...)
-    static constexpr table table_for = {Face::version, {pointer_for<Impl, Entries>::value...}};
+    static constexpr vtable_type vtable_for = {Face::version, {pointer_for<Impl, Entries>::value...}};
 };
 }
 
-template<class... Entries>
+template<class Self, class... Entries>
 struct interface {
     static constexpr interface_version_t version = 0;
 
-    template<class Face>
-    using facet_layout = detail::interface_layout<Face, type_list<Entries...>>;
+    using layout = detail::interface_layout<Self, type_list<Entries...>>;
 };
 
 namespace detail {
 template<class Face>
-using declared_layout_t = typename Face::template facet_layout<Face>;
-
-template<class Face, class = void>
-struct interface_vtable {};
-
-template<class Face>
-struct interface_vtable<Face, std::void_t<declared_layout_t<Face>>> {
-    using type = typename declared_layout_t<Face>::table;
-};
-
-template<class Face>
-concept declared_interface = std::same_as<vtable_t<Face>, typename declared_layout_t<Face>::table>;
+concept macro_interface = std::same_as<Face, typename Face::layout::face_type>;
 }
 
-// An explicit or reflected vtable specialization takes precedence over an
-// interface declaration inherited from a base.
-template<class Face>
-struct vtable : detail::interface_vtable<Face> {};
+template<detail::macro_interface Face>
+struct vtable<Face> {
+    using type = typename Face::layout::vtable_type;
+};
 
-template<detail::declared_interface Face>
+template<detail::macro_interface Face>
 struct direct_bases<Face> {
-    using type = typename detail::declared_layout_t<Face>::bases;
+    using type = typename Face::layout::bases;
 };
 
-template<detail::declared_interface Face>
+template<detail::macro_interface Face>
 struct direct_methods<Face> {
-    using type = typename detail::declared_layout_t<Face>::methods;
+    using type = typename Face::layout::methods;
 };
 
-template<class Impl, detail::declared_interface Face>
-    requires requires { detail::declared_layout_t<Face>::template table_for<Impl>; }
+template<class Impl, detail::macro_interface Face>
+    requires requires { Face::layout::template vtable_for<Impl>; }
 struct vtable_for<Impl, Face> {
-    static constexpr auto value = &detail::declared_layout_t<Face>::template table_for<Impl>;
+    static constexpr auto value = &Face::layout::template vtable_for<Impl>;
 };
 }
 

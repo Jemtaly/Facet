@@ -19,24 +19,22 @@
 namespace fct {
 template<class... Ts>
 struct type_list {
-private:
-    template<std::size_t I, class List>
-    struct element;
-
-    template<std::size_t I, class Head, class... Tail>
-    struct element<I, type_list<Head, Tail...>> : element<I - 1, type_list<Tail...>> {};
-
-    template<class Head, class... Tail>
-    struct element<0, type_list<Head, Tail...>> {
-        using type = Head;
-    };
-
-public:
     static constexpr std::size_t size = sizeof...(Ts);
-
-    template<std::size_t I>
-    using at = typename element<I, type_list>::type;
 };
+
+template<std::size_t I, class Ts>
+struct element;
+
+template<std::size_t I, class Head, class... Tail>
+struct element<I, type_list<Head, Tail...>> : element<I - 1, type_list<Tail...>> {};
+
+template<class Head, class... Tail>
+struct element<0, type_list<Head, Tail...>> {
+    using type = Head;
+};
+
+template<std::size_t I, class Ts>
+using element_t = typename element<I, Ts>::type;
 
 template<class Initial, class... Lists>
 struct concat;
@@ -68,9 +66,11 @@ struct tuple<> {
 
 template<class Head, class... Tail>
 struct tuple<Head, Tail...> {
-    static constexpr std::size_t size = 1 + sizeof...(Tail);
-    Head head;
-    [[no_unique_address]] tuple<Tail...> tail;
+    using head_type = Head;
+    using tail_type = tuple<Tail...>;
+    static constexpr std::size_t size = 1 + tail_type::size;
+    head_type head;
+    [[no_unique_address]] tail_type tail;
 };
 
 template<std::size_t I, class T>
@@ -139,6 +139,9 @@ struct base_types<type_list<Bases...>> {
     using type = type_list<typename Bases::type...>;
 };
 
+template<class Bases>
+using base_types_t = typename base_types<Bases>::type;
+
 template<class Seen, class Pending>
 struct collect_interfaces;
 
@@ -153,7 +156,7 @@ struct collect_interfaces<
     type_list<Next, Rest...>>
     : collect_interfaces<
           type_list<Seen..., Next>,
-          concat_t<typename base_types<direct_bases_t<Next>>::type, type_list<Rest...>>> {};
+          concat_t<base_types_t<direct_bases_t<Next>>, type_list<Rest...>>> {};
 
 template<class... Seen, class Next, class... Rest>
     requires(std::same_as<Next, Seen> || ...)
@@ -236,7 +239,7 @@ template<class To, class Source, class... Bases>
 constexpr vtable_t<To> const *vtable_upcast_from_any(Source &&source, type_list<Bases...>) noexcept {
     constexpr std::array matches = {upcastable_from<To, typename Bases::type>...};
     constexpr auto index = std::ranges::find(matches, true) - matches.begin();
-    using Base = typename type_list<Bases...>::template at<index>;
+    using Base = element_t<index, type_list<Bases...>>;
     return vtable_upcast_from<To, typename Base::type>(std::invoke(Base::converter, std::forward<Source>(source)));
 }
 
@@ -329,23 +332,32 @@ struct unique_names<
           type_list<Seen...>,
           type_list<Rest...>> {};
 
+template<class Seen, class Pending>
+using unique_names_t = typename unique_names<Seen, Pending>::type;
+
 template<class Faces>
 struct methods_of;
 
 template<class... Faces>
 struct methods_of<type_list<Faces...>> : concat<direct_methods_t<Faces>...> {};
 
-template<class Self, class Faces, class Methods = typename methods_of<Faces>::type>
+template<class Faces>
+using methods_of_t = typename methods_of<Faces>::type;
+
+template<class Self, class Faces, class Methods>
 struct facade_for;
 
 template<class Self, class Faces, class... Methods>
 struct facade_for<Self, Faces, type_list<Methods...>> {
     template<class Name>
     struct slot {
-        using methods = concat_t<std::conditional_t<
-            std::same_as<Name, typename Methods::name>,
-            type_list<Methods>,
-            type_list<>>...>;
+        using methods = concat_t<
+            std::conditional_t<
+                std::same_as<typename Methods::name, Name>,
+                type_list<Methods>,
+                type_list<>>...>;
+        using methods_overload = overload<methods>;
+        static constexpr methods_overload methods_dispatch = {};
 
         Self const *self;
 
@@ -354,9 +366,9 @@ struct facade_for<Self, Faces, type_list<Methods...>> {
             : self(reinterpret_cast<Self const *>(static_cast<type const *>(name))) {}
 
         template<class... Args>
-            requires std::invocable<overload<methods>, Self const &, Args...>
+            requires std::invocable<methods_overload, Self const &, Args...>
         decltype(auto) operator()(Args &&...args) const {
-            return overload<methods>{}(*self, std::forward<Args>(args)...);
+            return methods_dispatch(*self, std::forward<Args>(args)...);
         }
     };
 
@@ -368,15 +380,21 @@ struct facade_for<Self, Faces, type_list<Methods...>> {
         using type = struct : Names::template bind<slot<Names>>... {};
     };
 
-    using type = compose<typename unique_names<type_list<>, type_list<typename Methods::name...>>::type>::type;
+    template<class Names>
+    using compose_t = typename compose<Names>::type;
+
+    using type = compose_t<unique_names_t<type_list<>, type_list<typename Methods::name...>>>;
 };
+
+template<class Self, class Faces>
+using facade_for_t = typename detail::facade_for<Self, Faces, methods_of_t<Faces>>::type;
 }
 
 template<class Self, class Face>
-using facade = typename detail::facade_for<Self, type_list<Face>>::type;
+using facade = detail::facade_for_t<Self, type_list<Face>>;
 
 template<class Self, class... Faces>
-using combined_facade = typename detail::facade_for<Self, detail::interface_closure_t<Faces...>>::type;
+using combined_facade = detail::facade_for_t<Self, detail::interface_closure_t<Faces...>>;
 }
 
 // ============================================================================

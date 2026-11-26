@@ -798,8 +798,8 @@ Guidelines:
 FACET_METHOD(root_value, root_value);
 FACET_METHOD(read, read);
 
-struct IRoot : fct::interface<root_value<int()>> {};
-struct IReader : fct::interface<IRoot, read<int()>> {};
+struct IRoot : fct::interface<IRoot, root_value<int()>> {};
+struct IReader : fct::interface<IReader, IRoot, read<int()>> {};
 
 struct Reader {
     int root_value() const { return 10; }
@@ -812,7 +812,9 @@ assert(handle->root_value() == 10);
 assert(handle->read() == 20);
 ```
 
-`fct::interface<Entries...>` generates the vtable layout and protocol specializations for its entries. An entry can be a base interface or a method alias. Entries stay in declaration order, so append new methods when an interface must evolve across a binary boundary.
+`fct::interface<Self, Entries...>` takes the interface being declared as its first argument. Only the remaining arguments contribute vtable entries, one per base interface or method alias in declaration order. Append new methods when an interface must evolve across a binary boundary.
+
+The macro layout belongs to `Self`. A reflected interface can derive from a macro interface, for example `struct [[=fct::spec]] IDerived : IRoot { int extra(); };`. Reflection generates the table for `IDerived` and links it to the macro-generated table for `IRoot`.
 
 The method alias accepts a function signature:
 
@@ -820,7 +822,7 @@ The method alias accepts a function signature:
 FACET_METHOD(quote, quote);
 
 using Quote = quote<double(double)>;
-struct IQuote : fct::interface<Quote> {};
+struct IQuote : fct::interface<IQuote, Quote> {};
 ```
 
 The default dispatcher calls the implementation member with the name supplied to `FACET_METHOD`. A custom dispatcher and a version fallback are available through the method alias:
@@ -833,7 +835,7 @@ using ValueAfterUpgrade = value_after_upgrade<int(int)>::since<2, [](auto self, 
     return self->value() + delta;
 }>;
 
-struct IRevisioned : fct::interface<value<int()>, ValueAfterUpgrade> {
+struct IRevisioned : fct::interface<IRevisioned, value<int()>, ValueAfterUpgrade> {
     static constexpr fct::interface_version_t version = 2;
 };
 ```
@@ -843,7 +845,7 @@ Use `type_name<Signature>::dispatch_via<callable>` when an implementation needs 
 Runtime ids for macro interfaces use a manual `interface_id` specialization:
 
 ```cpp
-struct IRoot : fct::interface<root_value<int()>> {};
+struct IRoot : fct::interface<IRoot, root_value<int()>> {};
 
 namespace fct {
 template<>
@@ -1001,7 +1003,7 @@ For every `[[=fct::spec]]` type `Face`, this header provides `vtable<Face>`, `di
 | Entity | Description |
 | --- | --- |
 | `FACET_METHOD(type_name, member_name)` | Declares a reusable method-name type and a signature alias. The alias is used as `type_name<Return(Args...)>`. |
-| `interface<Entries...>` | Generates a vtable layout and protocol specializations for base-interface and method entries. |
+| `interface<Self, Entries...>` | Generates the vtable layout and protocol specializations for `Self` from its base-interface and method entries. |
 | `type_name<Signature>::dispatch_via<Dispatcher>` | Creates a method entry with a custom implementation dispatcher. |
 | `type_name<Signature>::since<Version, Fallback>` | Creates a method entry with a version fallback. |
 
@@ -1088,7 +1090,7 @@ Each `(Impl, Face)` pair gets one `static constexpr` table instance. Its method 
 
 On the calling side, each method has an *invoker* that loads the handle's first vtable. If the method carries `since(n, fallback)` and the table's `version` is less than `n`, the invoker calls the fallback. Otherwise it calls the slot.
 
-For `fct::interface<Entries...>`, the generated table contains the version followed by one tuple entry for each base or method entry. A base entry stores its base vtable pointer. A method entry stores a function pointer with the signature `R (*)(facets<Face>, Args...)`.
+For `fct::interface<Self, Entries...>`, the generated table contains the version followed by one tuple entry for each base or method entry. A base entry stores its base vtable pointer. A method entry stores a function pointer with the signature `R (*)(facets<Self>, Args...)`.
 
 ### 8.4 Implementation lookup
 

@@ -1,62 +1,121 @@
 #include <cassert>
+#include <typeinfo>
 
 #include <facet.hpp>
 #include <facet/reflection.hpp>
 
 namespace manual_names {
+// An unnamed forwarder keeps its class name out of facade member lookup.
 struct root_value_name {
     template<class Slot>
-    struct bind {
-        template<class... Args>
-            requires std::invocable<Slot, Args...>
-        decltype(auto) root_value(Args &&...args) const {
-            return Slot(this)(std::forward<Args>(args)...);
-        }
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) root_value(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
     };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
 };
 
 struct read_name {
     template<class Slot>
-    struct bind {
-        template<class... Args>
-            requires std::invocable<Slot, Args...>
-        decltype(auto) read(Args &&...args) const {
-            return Slot(this)(std::forward<Args>(args)...);
-        }
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) read(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
     };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
 };
 
 struct count_name {
     template<class Slot>
-    struct bind {
-        template<class... Args>
-            requires std::invocable<Slot, Args...>
-        decltype(auto) count(Args &&...args) const {
-            return Slot(this)(std::forward<Args>(args)...);
-        }
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) count(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
     };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
 };
 
 struct base_name {
     template<class Slot>
-    struct bind {
-        template<class... Args>
-            requires std::invocable<Slot, Args...>
-        decltype(auto) base(Args &&...args) const {
-            return Slot(this)(std::forward<Args>(args)...);
-        }
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) base(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
     };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
 };
 
 struct value_name {
     template<class Slot>
-    struct bind {
-        template<class... Args>
-            requires std::invocable<Slot, Args...>
-        decltype(auto) value(Args &&...args) const {
-            return Slot(this)(std::forward<Args>(args)...);
-        }
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) value(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
     };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
+};
+
+struct bind_name {
+    template<class Slot>
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) bind(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
+    };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
+};
+
+struct type_name {
+    template<class Slot>
+    struct bind_def {
+        using type = struct {
+            template<class... Args>
+                requires std::invocable<Slot, Args...>
+            decltype(auto) type(Args &&...args) const {
+                return Slot(this)(std::forward<Args>(args)...);
+            }
+        };
+    };
+
+    template<class Slot>
+    using bind = typename bind_def<Slot>::type;
 };
 }
 
@@ -91,9 +150,8 @@ struct direct_bases<IManualRoot> {
 
 template<>
 struct direct_methods<IManualRoot> {
-    using type = type_list<direct_method<
-        manual_names::root_value_name,
-        [](facets<IManualRoot> handle) {
+    using type = type_list<
+        direct_method<manual_names::root_value_name, [](facets<IManualRoot> handle) {
             return handle.template vtable_at<0>()->self->root_value(handle.get());
         }>>;
 };
@@ -123,18 +181,16 @@ struct vtable<IManualReader> {
 
 template<>
 struct direct_bases<IManualReader> {
-    using type = type_list<direct_base<
-        IManualRoot,
-        [](vtable_t<IManualReader> const *table) {
+    using type = type_list<
+        direct_base<IManualRoot, [](vtable_t<IManualReader> const *table) {
             return &table->root;
         }>>;
 };
 
 template<>
 struct direct_methods<IManualReader> {
-    using type = type_list<direct_method<
-        manual_names::read_name,
-        [](facets<IManualReader> handle) {
+    using type = type_list<
+        direct_method<manual_names::read_name, [](facets<IManualReader> handle) {
             return handle.template vtable_at<0>()->self->read(handle.get());
         }>>;
 };
@@ -165,18 +221,16 @@ struct vtable<IManualCounter> {
 
 template<>
 struct direct_bases<IManualCounter> {
-    using type = type_list<direct_base<
-        IManualReader,
-        [](vtable_t<IManualCounter> const *table) {
+    using type = type_list<
+        direct_base<IManualReader, [](vtable_t<IManualCounter> const *table) {
             return &table->reader;
         }>>;
 };
 
 template<>
 struct direct_methods<IManualCounter> {
-    using type = type_list<direct_method<
-        manual_names::count_name,
-        [](facets<IManualCounter> handle) {
+    using type = type_list<
+        direct_method<manual_names::count_name, [](facets<IManualCounter> handle) {
             return handle.template vtable_at<0>()->self->count(handle.get());
         }>>;
 };
@@ -235,9 +289,8 @@ struct vtable<IManualBase> {
 
 template<>
 struct direct_methods<IManualBase> {
-    using type = type_list<direct_method<
-        manual_names::base_name,
-        [](facets<IManualBase> handle) {
+    using type = type_list<
+        direct_method<manual_names::base_name, [](facets<IManualBase> handle) {
             return handle.template vtable_at<0>()->base(handle.get());
         }>>;
 };
@@ -296,6 +349,8 @@ template<class T>
 struct vtable<IManualValue<T>> {
     struct type {
         T (*value)(void *);
+        void (*bind)(void *, T);
+        std::type_info const &(*model_type)();
     };
 };
 
@@ -306,10 +361,15 @@ struct direct_bases<IManualValue<T>> {
 
 template<class T>
 struct direct_methods<IManualValue<T>> {
-    using type = type_list<direct_method<
-        manual_names::value_name,
-        [](facets<IManualValue<T>> handle) {
+    using type = type_list<
+        direct_method<manual_names::value_name, [](facets<IManualValue<T>> handle) {
             return handle.template vtable_at<0>()->value(handle.get());
+        }>,
+        direct_method<manual_names::bind_name, [](facets<IManualValue<T>> handle, T value) {
+            handle.template vtable_at<0>()->bind(handle.get(), std::move(value));
+        }>,
+        direct_method<manual_names::type_name, [](facets<IManualValue<T>> handle) -> std::type_info const & {
+            return handle.template vtable_at<0>()->model_type();
         }>>;
 };
 
@@ -321,6 +381,8 @@ struct vtable_for<Impl, IManualValue<T>> {
 
     static constexpr vtable_t<IManualValue<T>> table{
         .value = invoke,
+        .bind = [](void *data, T value) { static_cast<Impl *>(data)->value = std::move(value); },
+        .model_type = []() -> std::type_info const & { return typeid(Impl); },
     };
     static constexpr vtable_t<IManualValue<T>> const *value = &table;
 };
@@ -338,6 +400,9 @@ void test_manual_template_interface() {
     fct::facets<IManualValue<int>> value{data};
     assert(value);
     assert(value->value() == 56);
+    assert(value->type() == typeid(ValueModel));
+    value->bind(78);
+    assert(model.value == 78);
 
     fct::facets<IManualValue<double>> wrong_value{data};
     assert(!wrong_value);
